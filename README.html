@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BifrostFM 2.4.5</title>
+<style>
+
+body { font-family: Arial, sans-serif; font-size: 11pt; margin: 1in;
+       line-height: 1.4; max-width: 7.5in; color: #1a1a1a; }
+h1 { font-size: 18pt; color: #1a1a1a; border-bottom: 2px solid #333;
+     padding-bottom: 4pt; margin-top: 24pt; }
+h1:first-child { margin-top: 0; }
+h2 { font-size: 14pt; color: #1a1a1a; margin-top: 22pt;
+     border-bottom: 1px solid #999; padding-bottom: 2pt; }
+h3 { font-size: 12pt; color: #333; margin-top: 16pt; }
+h4 { font-size: 11pt; color: #333; margin-top: 12pt; margin-bottom: 4pt; }
+p  { margin: 6pt 0; }
+pre { background-color: #f0f0f0; border: 1px solid #ccc; padding: 8pt;
+      font-family: Consolas, monospace; font-size: 9.5pt; white-space: pre;
+      overflow-x: auto; line-height: 1.25; }
+code { font-family: Consolas, monospace; font-size: 10pt;
+       background-color: #f0f0f0; padding: 1pt 3pt; border-radius: 2px; }
+pre code { background-color: transparent; padding: 0; font-size: 9.5pt; }
+p.note, div.note { background-color: #fff3cd; border-left: 4px solid #ffc107;
+                   padding: 6pt 10pt; margin: 8pt 0; }
+p.important, div.important { background-color: #f8d7da;
+                             border-left: 4px solid #dc3545;
+                             padding: 6pt 10pt; margin: 8pt 0; }
+p.summary, div.summary { background-color: #d1ecf1;
+                         border-left: 4px solid #0c5460;
+                         padding: 6pt 10pt; margin: 8pt 0; }
+ul, ol { margin-top: 4pt; margin-bottom: 8pt; }
+li { margin-bottom: 4pt; }
+li > ul, li > ol { margin-top: 4pt; margin-bottom: 4pt; }
+/* Indented outline body. Use in markdown as:
+   <div class="indent" markdown="1"> ...markdown incl. code fences... </div>
+   (the md_in_html extension processes markdown inside the div). */
+div.indent { margin: 4pt 0 8pt 2em; }
+div.indent > :first-child { margin-top: 0; }
+div.indent > :last-child  { margin-bottom: 0; }
+table { border-collapse: collapse; margin: 10pt 0; width: 100%; }
+td, th { border: 1px solid #999; padding: 4pt 8pt; font-size: 10pt;
+         vertical-align: top; }
+th { background-color: #e0e0e0; text-align: left; }
+tr:nth-child(even) td { background-color: #f7f7f7; }
+a  { color: #1e3a8a; text-decoration: none; }
+a:hover { text-decoration: underline; }
+hr { border: none; border-top: 1px solid #999; margin: 16pt 0; }
+strong { color: #1a1a1a; }
+img { max-width: 100%; height: auto; }
+
+.doc-meta { color: #555; font-size: 10pt; margin-top: -6pt;
+            margin-bottom: 12pt; }
+.toc { background-color: #f7f7f7; border: 1px solid #ccc;
+       padding: 10pt 14pt; margin: 16pt 0 24pt; font-size: 10.5pt; }
+.toc h2 { font-size: 12pt; margin-top: 0; margin-bottom: 6pt; border: none;
+          color: #333; }
+.toc ul { margin: 0; padding-left: 20pt; }
+.toc li { margin-bottom: 2pt; }
+.toc a { color: #1e3a8a; }
+
+@media print {
+  body { margin: 0.75in; }
+  pre, table, div.note, div.important { page-break-inside: avoid; }
+  h1, h2, h3 { page-break-after: avoid; }
+}
+
+</style>
+</head>
+<body>
+<h1>BifrostFM 2.4.5</h1>
+<div class="toc">
+<h2>Contents</h2>
+<ul>
+  <li><a href="#what-is-in-this-folder">What is in this folder</a></li>
+  <li><a href="#running-it">Running it</a></li>
+  <li><a href="#what-it-does">What it does</a></li>
+  <li><a href="#command-line">Command line</a></li>
+  <li><a href="#how-the-code-is-written">How the code is written</a></li>
+  <li><a href="#building-it">Building it</a></li>
+  <li><a href="#licence">Licence</a></li>
+</ul>
+</div>
+<p>A Windows dual-pane file manager for Linux and FAT filesystems &ndash; ext2,
+ext3 and ext4, and FAT12, FAT16, FAT32 and exFAT &ndash; in <strong>image files</strong> and
+on <strong>real devices</strong> (SD cards, USB sticks, eMMC adapters). The filesystem
+inside the image or on the device is shown in the LEFT pane, the Windows
+filesystem in the RIGHT, and files and whole folders copy between them in
+both directions. Everything is done on the raw bytes, in userspace: no
+Linux host, no Windows ext4 driver, nothing installed. An image file needs
+no Administrator rights; a real device does.</p>
+<p>The name is <strong>Bifrost</strong>, the rainbow bridge between two worlds in Norse
+myth: the program is the bridge between a Windows filesystem and a Linux
+one.</p>
+<p><strong>Always keep a backup copy of an image or a card before changing it.</strong></p>
+<h2 id="what-is-in-this-folder">What is in this folder</h2>
+<table>
+<thead>
+<tr>
+<th>Item</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>BifrostFM.exe</code></td>
+<td>The program, ready to run: one file, the engine inside it.</td>
+</tr>
+<tr>
+<td><code>README.md</code>, <code>README.html</code></td>
+<td>This file, and the same as a page to read in a browser.</td>
+</tr>
+<tr>
+<td><code>LICENSE</code></td>
+<td>The GNU General Public License, version 2 &ndash; BifrostFM&rsquo;s licence.</td>
+</tr>
+<tr>
+<td><code>SOURCES.md</code>, <code>SOURCES.html</code></td>
+<td>The source tree, file by file: which code is BifrostFM&rsquo;s own and which is open-source code built into the engine, with each one&rsquo;s copyright and licence.</td>
+</tr>
+<tr>
+<td><code>LWEXT4_UPSTREAM.md</code>, <code>LWEXT4_UPSTREAM.html</code></td>
+<td>For lwext4&rsquo;s maintainers and users: every defect found in the lwext4 library while building BifrostFM, each numbered patch that fixes one (marked &ldquo;BifrostFM patch N&rdquo; in <code>engine\lwext4\</code>) explained and given as a diff against lwext4&rsquo;s v1.0.0 release, with where upstream&rsquo;s master stands, and the defects verified but not yet fixed.</td>
+</tr>
+<tr>
+<td><code>build.bat</code></td>
+<td>Builds everything: the engine, then the program (see &ldquo;Building it&rdquo;).</td>
+</tr>
+<tr>
+<td><code>engine\</code></td>
+<td>The engine&rsquo;s source: <code>bifrost_engine.dll</code>, a C library, and the open-source libraries it builds in.</td>
+</tr>
+<tr>
+<td><code>gui\</code></td>
+<td>The program&rsquo;s source: <code>BifrostFM.exe</code>, C# WinForms.</td>
+</tr>
+<tr>
+<td><code>tools\</code></td>
+<td>The tool that draws the program&rsquo;s icon and About picture (not needed to build).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="running-it">Running it</h2>
+<p><code>BifrostFM.exe</code> runs on 64-bit Windows with the .NET Framework 4 installed
+(it is part of Windows 10 and Windows 11). Copy it anywhere and run it. It
+extracts its engine to a folder of its own under <code>%TEMP%</code> when it starts
+and deletes it when it exits. Its settings are kept in the registry, under
+<code>HKCU\Software\BifrostFM</code>.</p>
+<p>Reading or writing a real device needs Administrator rights. The program
+does not ask for them at start-up: the first device command offers to
+restart it as Administrator, and the restarted copy goes straight back to
+that command.</p>
+<h2 id="what-it-does">What it does</h2>
+<ul>
+<li><strong>Opens</strong> an ext2, ext3, ext4, FAT12, FAT16, FAT32 or exFAT filesystem in
+  an image file, in one partition of a whole-disk image (MBR or GPT), or on
+  a device, and browses it: name, size, type, permissions, owner and time
+  for every entry.</li>
+<li><strong>Copies</strong> files and whole trees out of the image and into it &ndash; by menu,
+  by clipboard (Ctrl+C / Ctrl+V), or by dragging between the panes or to
+  and from Explorer. Copy and paste copies; cut and paste moves, within the
+  image, within Windows or across. File contents are copied exactly. What
+  Windows cannot hold (a symbolic link, a device node, a name Windows
+  refuses) is skipped, and an optional manifest beside the copy records
+  every entry&rsquo;s Unix mode, owner, group, times and links, so a tree copied
+  out and back in comes back as it was.</li>
+<li><strong>Edits</strong> the image: new folder, rename, delete, and, in the image,
+  permissions, owner and group (as octal and as check boxes). An image is
+  always opened <strong>read-only</strong>; the first change asks once, with a warning,
+  then reopens it for writing.</li>
+<li><strong>Opens files inside the image</strong> in the program&rsquo;s own windows: a text
+  editor, a hex editor, a picture viewer, and a structured editor for JSON,
+  INI and Klipper / Moonraker / KlipperScreen configuration files. Each
+  editor&rsquo;s Save writes back into the image, and Save As can write to the
+  image or to Windows.</li>
+<li><strong>Makes images and filesystems</strong>: a new empty image file of an exact
+  size, a partition window to create, edit and write MBR and GPT tables,
+  and Make Filesystem for an empty ext2, ext3, ext4 (no journal), FAT16
+  (FAT12 when small), FAT32 or exFAT filesystem &ndash; in an image or in a
+  partition of a device.</li>
+<li><strong>Checks and repairs</strong> an ext filesystem with e2fsck (e2fsprogs 1.47.4,
+  built into the engine), report-only or repairing, and <strong>grows</strong> one to
+  fill its partition with resize2fs (Expand Filesystem).</li>
+<li><strong>Images devices</strong>: Save Device to Image File copies a whole device (or
+  its first part) to a raw <code>.img</code> or a compressed <code>.img.xz</code>, with a SHA-256
+  beside it; Write Image File to Device writes a raw, <code>.xz</code>, <code>.gz</code>, <code>.zst</code>
+  or <code>.zip</code> image to a device, reads it all back and compares it. The disk
+  Windows runs from is never written.</li>
+<li><strong>Tests a card&rsquo;s real capacity</strong> without destroying what is on it, and
+  warns about a counterfeit card that claims more than it holds.</li>
+<li><strong>Shows the image&rsquo;s facts</strong>: Filesystem Properties lists its type, label,
+  size, free space, block and inode counts and feature flags.</li>
+</ul>
+<p>Started with <code>--debug</code>, the program keeps a log of the run in
+<code>log\BifrostFM-debug.log</code> beside it, to be read outside the program.</p>
+<h2 id="command-line">Command line</h2>
+<pre><code>BifrostFM.exe                     open the window
+BifrostFM.exe &lt;image-file&gt;        open the window with that image open
+BifrostFM.exe --debug [...]       keep a debug log for this run (log\BifrostFM-debug.log beside the program)
+BifrostFM.exe --open-device       open the window and go straight to File &gt; Open &gt; Device
+BifrostFM.exe --read-device       ... to File &gt; Save Device to Image File
+BifrostFM.exe --write-device      ... to File &gt; Write Image File to Device
+BifrostFM.exe --partition-device  ... to File &gt; Partition/Format &gt; Device
+BifrostFM.exe --check-device      ... to File &gt; Check Filesystem's device picker
+BifrostFM.exe --partition-device --disk &lt;\\.\PhysicalDriveN&gt; --after &lt;pid&gt;
+                                  that disk's partition window, its risk warning taken
+                                  as answered (the restart as Administrator uses it;
+                                  a --disk without --after is dropped)
+BifrostFM.exe --after &lt;pid&gt; [...] wait for that process to exit first
+                                  (the restart as Administrator uses it)
+BifrostFM.exe --help | -h         print the usage text
+BifrostFM.exe --version           print the version
+</code></pre>
+<p>The device options are how the restart as Administrator resumes the
+command that asked for it; they can be given by hand too. Exit codes: 0
+success; 1 the engine could not be loaded; 2 bad usage.</p>
+<h2 id="how-the-code-is-written">How the code is written</h2>
+<p>BifrostFM&rsquo;s own source &ndash; the program and the engine&rsquo;s own files; the
+open-source libraries built into the engine keep their own style &ndash;
+follows a few rules throughout, chosen so the program can be read,
+searched and debugged from the outside, with a text editor and <code>grep</code> as
+readily as with a debugger, and so that a whole class of timing faults
+cannot happen at all.</p>
+<p><strong>One worker runs every command, one at a time.</strong> A click, a key or a
+menu item does no work of its own: its handler only records what was
+asked and POSTS a request to the command system (<code>gui\CommandSystem.cs</code>
+and the <code>Command*.cs</code> files beside it), then returns. The command system
+has ONE worker thread, which takes the requests in order and runs each
+one&rsquo;s whole sequence &ndash; every step, every question it asks, every engine
+call &ndash; before it takes the next. The worker alone changes the program&rsquo;s
+state (the open filesystem, the editors, the windows that own a disk);
+the window never does. When the worker needs to ask the user something
+(an Overwrite question, a warning, a picker), it hands the question to
+the window, which shows it on its own message loop and posts the answer
+back while the worker waits. Results, progress and the program&rsquo;s state
+come back to the window the same way, as posted &ldquo;views&rdquo; it draws from
+(<code>BeginInvoke</code>); the worker never calls window code directly. The engine
+is called from that one thread only, and refuses a second call made
+while one is running (<code>BFE_ERR_BUSY</code>).</p>
+<p><strong>No re-entrancy, by structure rather than by locks.</strong> Because every
+command is a request in one queue run by one thread, two commands cannot
+overlap, a double click cannot start one twice (a request that duplicates
+one already waiting is dropped), and nothing can be started in the
+middle of another: a gate checks the program&rsquo;s state before each request
+runs and refuses one that does not fit (Check while a partition window
+owns the disk, say), with the reason on the status line. There are no
+busy flags or semaphores guarding operations: the command system&rsquo;s one
+lock is held only while a request, a question or an answer is handed
+between the window and the worker, never while work is done (the only
+other lock in the program is the debug log&rsquo;s, round each line it
+writes). The window&rsquo;s message loop is never pumped from inside a handler
+(no <code>Application.DoEvents</code>), so a handler can never be entered again
+while it is still running.</p>
+<p><strong>Every name can be found with a text search.</strong> Every class, function,
+field and constant outside a function&rsquo;s own locals is named
+<code>GROUP_Name</code>: a prefix naming the class or module it belongs to (<code>MAIN_</code>,
+<code>CFC_</code>, <code>SYS_</code>, <code>BFE_</code> for the engine&rsquo;s API, <code>BFX_</code> and <code>BFC_</code> inside the
+engine &hellip;), its case saying whether it is visible outside that class
+(<code>MAIN_</code> or private <code>Main_</code>). Each name is unique across the program &ndash;
+no overloads, no two classes with a member of the same name, no
+inheritance between classes of ours, no interfaces or virtual methods of
+ours, and nothing chosen at run time by reflection or by a name in a
+string: which code runs is written out in the code. So a search for a
+name finds its one definition and every place it is used, in any editor
+or with <code>grep</code>, and a search for a prefix finds everything that belongs
+to that part of the program. Fields carry a short type tag after the
+prefix (<code>Main_bImageOpen</code> is a bool, <code>Main_tsbClose</code> a toolbar button,
+<code>pfn</code> a function pointer).</p>
+<p><strong>Every event has its own handler, so every event can be traced.</strong> Each
+control&rsquo;s event is wired to a handler written for that control alone
+(<code>Main_OnCloseButtonClicked</code>), never one shared between controls that
+decides what to do from the sender; a menu item and a toolbar button for
+the same command each have their own, both calling the same function.
+There are no lambdas or anonymous delegates: every callback is a named
+function. A callback the program holds is a single named function-pointer
+field (<code>pfn...</code>), set explicitly, never a list of subscribers. So a
+breakpoint or a log line in a handler catches exactly one event from
+exactly one control, and searching for a handler&rsquo;s name shows exactly
+where it is hooked. (The one allowance: controls made at run time, such
+as one menu item per disk found, may share a handler.)</p>
+<p><strong>Every function says what it does.</strong> Each one has a boxed header saying
+what it does, why, its arguments and what it returns; each group of
+lines inside says what it does and why it is done that way. The aim is
+that the code could almost be rebuilt from its comments, and that a
+reader never has to guess a reason.</p>
+<h2 id="building-it">Building it</h2>
+<p>The program is built in two steps, the engine first, each by one batch
+file run with <code>cmd.exe</code>; <code>build.bat</code> runs both. Every source file is
+named in its script, so a file missing from the tree stops the build.</p>
+<h3>The tools needed</h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>What for</th>
+<th>Where to get it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>64-bit Windows</strong> with <code>cmd.exe</code></td>
+<td>Running the two batch files</td>
+<td>&ndash;</td>
+</tr>
+<tr>
+<td><strong>WinLibs MinGW-w64 GCC</strong>, x86_64, UCRT runtime, POSIX threads (15.2.0 was used for this release), with its <code>gcc</code> and <code>windres</code> on <code>PATH</code></td>
+<td>Compiling the engine DLL (C), and compiling the program&rsquo;s resources (icon, version, the embedded DLL)</td>
+<td>https://winlibs.com, or <code>winget install BrechtSanders.WinLibs.POSIX.UCRT</code></td>
+</tr>
+<tr>
+<td><strong>.NET Framework 4.x</strong> and its <code>csc.exe</code> (C# 5 compiler), at <code>%windir%\Microsoft.NET\Framework64\v4.0.30319\csc.exe</code></td>
+<td>Compiling the program (C#)</td>
+<td>Part of Windows 10 and 11; nothing to install</td>
+</tr>
+</tbody>
+</table>
+<p>Nothing else is needed: no Visual Studio, no MSBuild, no CMake, no NuGet,
+no make. The engine&rsquo;s libraries (lwext4, FatFs, e2fsprogs, liblzma, zlib
+and zstd) are all in <code>engine\</code> and are compiled by its batch file. Another
+64-bit MinGW-w64 gcc may well work, but only the one above was used.</p>
+<h3>The steps</h3>
+<p>In <code>cmd.exe</code>, with <code>gcc</code> and <code>windres</code> on <code>PATH</code>:</p>
+<pre><code>build.bat release same
+</code></pre>
+<p><code>build.bat</code> builds the engine, then the program, passing its arguments on
+to the program&rsquo;s build; it stops at the first step that fails, and ends
+with BUILD SUCCESSFUL or BUILD FAILED. Every build script works from its
+own folder and names every file relative to it, so it can be run from any
+folder and the tree builds wherever it is put. The two steps it runs can
+also be run by hand:</p>
+<pre><code>engine\build_engine.bat
+gui\build_gui.bat release same
+</code></pre>
+<ol>
+<li><code>engine\build_engine.bat</code> compiles the engine and writes
+   <code>engine\out\bifrost_engine.dll</code> (its objects in <code>engine\out\obj\</code>). It
+   takes a few minutes. It prints one compiler warning, from e2fsprogs&rsquo;
+   <code>util.c</code> &ndash; <em>&ldquo;Don&rsquo;t know how to detect memory on your platform?&rdquo;</em> &ndash; which
+   is expected and harmless: the figure that function cannot find on
+   Windows is used only by parts of e2fsck the engine does not run.</li>
+<li><code>gui\build_gui.bat release same</code> compiles the program and writes
+   <code>out\BifrostFM.exe</code>, with the engine DLL embedded in it: the same
+   single-file program as the one in this folder. Its intermediate files go
+   to <code>gui\obj\</code>.</li>
+</ol>
+<p><strong>The version.</strong> <code>gui\version.txt</code> holds the version, <code>2.4.5</code>. With <code>same</code>,
+the build carries that number unchanged, so it is the 2.4.5 release
+rebuilt. Without it, every build steps the last number by one (<code>2.4.6</code>,
+<code>2.4.7</code> &hellip;) and writes the new number back to <code>gui\version.txt</code>.</p>
+<p><strong>A development build</strong> &ndash; <code>build.bat</code> (or <code>gui\build_gui.bat</code>) with no
+arguments &ndash; also
+leaves a copy of the DLL beside the exe (which the program then uses in
+preference to its embedded one) and keeps a debug log on every run, in
+<code>out\log\</code>.</p>
+<p>The build closes a running <code>BifrostFM.exe</code> first, forcibly (anything
+unsaved in it is lost), because Windows will not let a running exe be
+replaced.</p>
+<h3>The icon (optional)</h3>
+<p><code>gui\art\BifrostFM.ico</code> and <code>gui\art\BifrostFM.png</code> are included, so the
+program builds without this. They are drawn in code by <code>tools\MakeIcon.cs</code>;
+after changing the drawing, <code>tools\build_icon.bat</code> compiles it with the same
+<code>csc.exe</code> and runs it, writing both files again.</p>
+<h2 id="licence">Licence</h2>
+<p>BifrostFM is copyright (c) 2026 B. C. Services and licensed under the
+<strong>GNU General Public License, version 2 or (at your option) any later
+version</strong> (<code>LICENSE</code>; the same text is beside the engine as
+<code>engine\GPL-2.0.txt</code>).</p>
+<p>The open-source code built into the engine keeps its own copyright and
+licence, as its files state:</p>
+<ul>
+<li><strong>lwext4</strong> (<code>engine\lwext4\</code>) &ndash; Grzegorz Kostka and contributors; BSD.
+  BifrostFM&rsquo;s changes to it are marked <code>BifrostFM patch N</code> where they are
+  made.</li>
+<li><strong>e2fsprogs 1.47.4</strong> (<code>engine\e2fsprogs\</code>: e2fsck, resize2fs and the
+  libraries they use) &ndash; Theodore Ts&rsquo;o and contributors; the GNU GPL, the
+  GNU LGPL and, for the UUID library, BSD (<code>engine\e2fsprogs\lib\uuid\COPYING</code>).</li>
+<li><strong>liblzma</strong> from XZ Utils 5.8.1 (<code>engine\compress\xz-5.8.1\</code>) &ndash; 0BSD
+  (<code>COPYING</code>, <code>COPYING.0BSD</code>).</li>
+<li><strong>zlib 1.3.1</strong> (<code>engine\compress\zlib-1.3.1\</code>) &ndash; the zlib licence
+  (<code>LICENSE</code>).</li>
+<li><strong>zstd 1.5.7</strong> (<code>engine\compress\zstd-1.5.7\</code>) &ndash; BSD, or GPL-2.0 at your
+  choice (<code>LICENSE</code>, <code>COPYING</code>).</li>
+<li><strong>FatFs R0.16</strong> (<code>engine\fatfs\</code>) &ndash; ChaN; a one-condition BSD-style
+  licence (<code>engine\fatfs\LICENSE.txt</code>).</li>
+</ul>
+<p><code>SOURCES.md</code> gives the detail, folder by folder. Upstream&rsquo;s own test data
+and test programs are not included in this source release.</p>
+</body>
+</html>

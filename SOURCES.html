@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BifrostFM -- what is where, and who wrote it</title>
+<style>
+
+body { font-family: Arial, sans-serif; font-size: 11pt; margin: 1in;
+       line-height: 1.4; max-width: 7.5in; color: #1a1a1a; }
+h1 { font-size: 18pt; color: #1a1a1a; border-bottom: 2px solid #333;
+     padding-bottom: 4pt; margin-top: 24pt; }
+h1:first-child { margin-top: 0; }
+h2 { font-size: 14pt; color: #1a1a1a; margin-top: 22pt;
+     border-bottom: 1px solid #999; padding-bottom: 2pt; }
+h3 { font-size: 12pt; color: #333; margin-top: 16pt; }
+h4 { font-size: 11pt; color: #333; margin-top: 12pt; margin-bottom: 4pt; }
+p  { margin: 6pt 0; }
+pre { background-color: #f0f0f0; border: 1px solid #ccc; padding: 8pt;
+      font-family: Consolas, monospace; font-size: 9.5pt; white-space: pre;
+      overflow-x: auto; line-height: 1.25; }
+code { font-family: Consolas, monospace; font-size: 10pt;
+       background-color: #f0f0f0; padding: 1pt 3pt; border-radius: 2px; }
+pre code { background-color: transparent; padding: 0; font-size: 9.5pt; }
+p.note, div.note { background-color: #fff3cd; border-left: 4px solid #ffc107;
+                   padding: 6pt 10pt; margin: 8pt 0; }
+p.important, div.important { background-color: #f8d7da;
+                             border-left: 4px solid #dc3545;
+                             padding: 6pt 10pt; margin: 8pt 0; }
+p.summary, div.summary { background-color: #d1ecf1;
+                         border-left: 4px solid #0c5460;
+                         padding: 6pt 10pt; margin: 8pt 0; }
+ul, ol { margin-top: 4pt; margin-bottom: 8pt; }
+li { margin-bottom: 4pt; }
+li > ul, li > ol { margin-top: 4pt; margin-bottom: 4pt; }
+/* Indented outline body. Use in markdown as:
+   <div class="indent" markdown="1"> ...markdown incl. code fences... </div>
+   (the md_in_html extension processes markdown inside the div). */
+div.indent { margin: 4pt 0 8pt 2em; }
+div.indent > :first-child { margin-top: 0; }
+div.indent > :last-child  { margin-bottom: 0; }
+table { border-collapse: collapse; margin: 10pt 0; width: 100%; }
+td, th { border: 1px solid #999; padding: 4pt 8pt; font-size: 10pt;
+         vertical-align: top; }
+th { background-color: #e0e0e0; text-align: left; }
+tr:nth-child(even) td { background-color: #f7f7f7; }
+a  { color: #1e3a8a; text-decoration: none; }
+a:hover { text-decoration: underline; }
+hr { border: none; border-top: 1px solid #999; margin: 16pt 0; }
+strong { color: #1a1a1a; }
+img { max-width: 100%; height: auto; }
+
+.doc-meta { color: #555; font-size: 10pt; margin-top: -6pt;
+            margin-bottom: 12pt; }
+.toc { background-color: #f7f7f7; border: 1px solid #ccc;
+       padding: 10pt 14pt; margin: 16pt 0 24pt; font-size: 10.5pt; }
+.toc h2 { font-size: 12pt; margin-top: 0; margin-bottom: 6pt; border: none;
+          color: #333; }
+.toc ul { margin: 0; padding-left: 20pt; }
+.toc li { margin-bottom: 2pt; }
+.toc a { color: #1e3a8a; }
+
+@media print {
+  body { margin: 0.75in; }
+  pre, table, div.note, div.important { page-break-inside: avoid; }
+  h1, h2, h3 { page-break-after: avoid; }
+}
+
+</style>
+</head>
+<body>
+<h1>BifrostFM &ndash; what is where, and who wrote it</h1>
+<div class="toc">
+<h2>Contents</h2>
+<ul>
+  <li><a href="#bifrostfmrsquos-own-code-ndash-b-c-services-gpl-20-or-later">BifrostFM&rsquo;s own code &ndash; B. C. Services, GPL-2.0-or-later</a></li>
+  <li><a href="#open-source-code-built-into-the-engine">Open-source code built into the engine</a></li>
+  <li><a href="#folder-by-folder-file-by-file">Folder by folder, file by file</a></li>
+  <li><a href="#documents">Documents</a></li>
+</ul>
+</div>
+<p>BifrostFM is two programs built from this tree: an engine library in C
+(<code>bifrost_engine.dll</code>) and the Windows program in C# that uses it
+(<code>BifrostFM.exe</code>). Most of the tree is BifrostFM&rsquo;s own code; the engine
+also builds in six open-source projects, each kept in a folder of its own
+with its own copyright and licence. This file says which is which.</p>
+<p><strong>BifrostFM&rsquo;s own code is copyright B. C. Services and licensed under the
+GNU General Public License, version 2 or (at your option) any later version</strong>
+(the licence&rsquo;s text is <code>LICENSE</code>, and again beside the engine as
+<code>engine\GPL-2.0.txt</code>). Every one of its
+source files says so in its header. The open-source code keeps the copyright
+and licence its own files state.</p>
+<h2 id="bifrostfmrsquos-own-code-ndash-b-c-services-gpl-20-or-later">BifrostFM&rsquo;s own code &ndash; B. C. Services, GPL-2.0-or-later</h2>
+<table>
+<thead>
+<tr>
+<th>Where</th>
+<th>What</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>build.bat</code></td>
+<td>The whole build: <code>engine\build_engine.bat</code>, then <code>gui\build_gui.bat</code> with this script&rsquo;s arguments.</td>
+</tr>
+<tr>
+<td><code>gui\</code></td>
+<td>The program: the main window and its two panes, the copy and conflict windows, the partition and device windows, the filesystem check window, the properties windows, the text, hex and picture viewers and editors, the settings, and the engine&rsquo;s interface (<code>EngineNative.cs</code>, <code>EngineSession.cs</code>). Built by <code>gui\build_gui.bat</code>.</td>
+</tr>
+<tr>
+<td><code>gui\json\</code></td>
+<td>The structured editor for JSON, INI and Klipper / Moonraker / KlipperScreen configuration files.</td>
+</tr>
+<tr>
+<td><code>gui\lib\</code></td>
+<td>The busy window, the debug log and its viewer.</td>
+</tr>
+<tr>
+<td><code>gui\art\</code></td>
+<td>The program&rsquo;s icon and its About picture (drawn by <code>tools\MakeIcon.cs</code>).</td>
+</tr>
+<tr>
+<td><code>engine\</code> (the files at the top of the folder)</td>
+<td>The engine: <code>bifrost_engine.h</code> is its public interface; <code>bifrost_engine.c</code> and the <code>bfe_*.c</code> / <code>bfe_*.h</code> files are the session, browsing, editing, copying, the FAT and exFAT side over FatFs, block devices, device access, imaging, compressed images, formatting, checking, resizing and the capacity test. Built by <code>engine\build_engine.bat</code>.</td>
+</tr>
+<tr>
+<td><code>engine\lwext4\src\ext4_inline.c</code>, <code>ext4_casefold.c</code> and their headers in <code>engine\lwext4\include\</code></td>
+<td>Inline-data and case-insensitive (casefold) directory support added to lwext4.</td>
+</tr>
+<tr>
+<td><code>engine\lwext4\unicode\config.h</code>, <code>ext2_fs.h</code>, <code>ext2fs.h</code>, <code>ext2fsP.h</code></td>
+<td>Small stand-in headers that let the three Unicode files beside them build inside lwext4.</td>
+</tr>
+<tr>
+<td><code>engine\e2fsprogs\shim\config.h</code>, <code>mingw_missing.c</code>, <code>mingw_missing.h</code>, <code>sys\ioctl.h</code>, <code>sys\resource.h</code>, <code>termios.h</code></td>
+<td>What e2fsprogs needs from a Unix system that Windows does not provide, so it builds with MinGW.</td>
+</tr>
+<tr>
+<td><code>engine\compress\lzma_config\config.h</code></td>
+<td>liblzma&rsquo;s build configuration for this engine.</td>
+</tr>
+<tr>
+<td><code>tools\</code></td>
+<td>The tool that draws the icon and the About picture.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="open-source-code-built-into-the-engine">Open-source code built into the engine</h2>
+<table>
+<thead>
+<tr>
+<th>Where</th>
+<th>What</th>
+<th>Copyright and licence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>engine\lwext4\</code> (all but the files named above)</td>
+<td>lwext4, the ext2 / ext3 / ext4 implementation the engine works through</td>
+<td>Grzegorz Kostka and its contributors; a BSD licence, stated in each file. BifrostFM&rsquo;s changes to these files are marked where they are made, with <code>BifrostFM patch N</code> comments.</td>
+</tr>
+<tr>
+<td><code>engine\lwext4\unicode\nls_utf8.c</code>, <code>utf8data.h</code>, <code>utf8n.h</code></td>
+<td>UTF-8 normalisation and case folding, taken from e2fsprogs</td>
+<td>SGI and Collabora; GPL-2.0, as each file states.</td>
+</tr>
+<tr>
+<td><code>engine\e2fsprogs\</code> (all but the files named above)</td>
+<td>e2fsprogs 1.47.4: e2fsck, resize2fs and the libraries they use; in <code>shim\</code>, e2fsprogs&rsquo; own headers and the files its build generates</td>
+<td>Theodore Ts&rsquo;o and its contributors; e2fsck and resize2fs under the GNU GPL, the libraries under the GNU LGPL and, for the UUID library, a BSD licence &ndash; as each file states.</td>
+</tr>
+<tr>
+<td><code>engine\compress\xz-5.8.1\</code></td>
+<td>liblzma from XZ Utils 5.8.1 (.xz images)</td>
+<td>The XZ Utils authors; 0BSD (<code>COPYING</code>, <code>COPYING.0BSD</code>).</td>
+</tr>
+<tr>
+<td><code>engine\compress\zlib-1.3.1\</code></td>
+<td>zlib 1.3.1 (.gz and .zip images)</td>
+<td>Jean-loup Gailly and Mark Adler; the zlib licence (<code>LICENSE</code>).</td>
+</tr>
+<tr>
+<td><code>engine\compress\zstd-1.5.7\</code></td>
+<td>Zstandard 1.5.7 (.zst images)</td>
+<td>Meta Platforms, Inc. and affiliates; BSD or GPL-2.0, at your choice (<code>LICENSE</code>, <code>COPYING</code>).</td>
+</tr>
+<tr>
+<td><code>engine\fatfs\</code></td>
+<td>FatFs R0.16, the FAT12 / FAT16 / FAT32 and exFAT implementation the engine works through</td>
+<td>ChaN; a 1-clause BSD-style licence (<code>LICENSE.txt</code>), compatible with the GNU GPL. Its configuration, <code>source\ffconf.h</code>, carries BifrostFM&rsquo;s settings, each marked <code>BifrostFM FatFs patch 1</code>; <code>source\ff.c</code> carries <code>BifrostFM FatFs patch 2</code> (a volume is looked for at the range&rsquo;s first sector only, never through a partition table there).</td>
+</tr>
+</tbody>
+</table>
+<p>This source release leaves out BifrostFM&rsquo;s own tests and e2fsprogs&rsquo;
+upstream test data and test programs (<code>lib\blkid\tests\</code>,
+<code>lib\et\test_cases\</code>, the <code>tst_*</code> programs, <code>test_io.c</code>, <code>scantest.c</code>,
+<code>test_probe.in</code>, <code>test-resize</code> and <code>test_extent.*</code>); none of them is part
+of the build.</p>
+<h2 id="folder-by-folder-file-by-file">Folder by folder, file by file</h2>
+<p><em>(Being filled in as each file is reviewed: a folder or file not listed
+here has not been reached yet. This note goes when the list is complete.)</em></p>
+<h3><code>gui\</code></h3>
+<p>The Windows program, <code>BifrostFM.exe</code>: C# WinForms, compiled as one 64-bit
+exe by <code>build_gui.bat</code> into <code>out\</code> at the top of the tree.</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it holds, and what for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AboutForm.cs</code></td>
+<td>The About window: the program&rsquo;s name, picture, version, description, features and licence and credit lines, laid out in code from the measured text; modeless, so it can stay open beside the main window.</td>
+</tr>
+<tr>
+<td><code>AppSettings.cs</code></td>
+<td>The program&rsquo;s remembered settings, kept in the registry under <code>HKEY_CURRENT_USER\Software\BifrostFM</code>: the name of every value with its meaning and default, and the four calls that read and write them &ndash; a read never fails (a missing or wrong value gives the caller&rsquo;s default) and a failed write is ignored.</td>
+</tr>
+<tr>
+<td><code>build_gui.bat</code></td>
+<td>The program&rsquo;s build: closes a running copy, steps the version, compiles <code>engine.rc</code>&rsquo;s resources with windres and every listed source with the .NET Framework&rsquo;s own csc into one x64 exe in <code>out\</code>, and records the new version only once the exe has compiled; a development build also leaves the engine DLL beside the exe and keeps a debug log on every run.</td>
+</tr>
+<tr>
+<td><code>CheckForm.cs</code></td>
+<td>The Check Filesystem window: e2fsck&rsquo;s report line by line as it arrives (in a fixed-pitch face), a bar over its five passes, the verdict when it finishes &ndash; with a note when the filesystem&rsquo;s journal is on another device &ndash; and Copy, Cancel and a Repair, each posted through the main window (the worker asks before it repairs, and runs the check); shown modal over the main window, and it cannot be closed while a run is under way.</td>
+</tr>
+<tr>
+<td><code>CommandArguments.cs</code></td>
+<td>The arguments requests carry &ndash; an edit&rsquo;s, a copy&rsquo;s or cut&rsquo;s, a save&rsquo;s, a raw copy&rsquo;s, a table write&rsquo;s or format&rsquo;s, a partition command&rsquo;s, a restart&rsquo;s &ndash; each copying what it is given so a later change in a window cannot change a queued request; and the one factory every request is made through, which checks each kind&rsquo;s arguments and shape and builds the duplicate and stream keys the queue compares.</td>
+</tr>
+<tr>
+<td><code>CommandCheckViews.cs</code></td>
+<td>How a filesystem check&rsquo;s window is told about each run &ndash; a Begin when it starts and a Finished with its result when it ends &ndash; sent by the command worker apart from the request&rsquo;s own completion, which may go to a callback that consumes the result; one window serves the check and a Repair after it, with a way out when the window cannot be told at all.</td>
+</tr>
+<tr>
+<td><code>CommandClient.cs</code></td>
+<td>The UI&rsquo;s end of the command system: posting requests with their one-shot completions, and bringing the worker&rsquo;s views onto the UI thread (posted, never called) &ndash; each result to its completion, the rest to the main window&rsquo;s renderer &ndash; plus the direct channel a drag-out&rsquo;s extract uses while the UI thread is held in OLE&rsquo;s GetData.</td>
+</tr>
+<tr>
+<td><code>CommandClipboard.cs</code></td>
+<td>The main window&rsquo;s clipboard dealings for paste and cut: what a paste uses, read as one snapshot between two equal readings of Windows&rsquo; clipboard sequence number; the key that ties copied image items to this run and the image open when they were copied; and, after a cut has been carried out, the clear &ndash; made only while the clipboard is held open and only if it still holds that cut.</td>
+</tr>
+<tr>
+<td><code>CommandContracts.cs</code></td>
+<td>The shapes the command system&rsquo;s two sides exchange: the request kinds with their scheduling classes and the worker&rsquo;s modes, the steps a sequence is built from, the views, questions and answers; the request envelope the UI posts (frozen when posted, values only), a step&rsquo;s result, the worker&rsquo;s record of an open editor, the state view the UI mirrors, and the table binding the worker to its native steps.</td>
+</tr>
+<tr>
+<td><code>CommandCopySequence.cs</code></td>
+<td>Every copy and cut as one command on the worker &ndash; Extract, Import and Copy Within: free &rdquo; - Copy&rdquo; names for a copy pasted beside itself, write access when the image changes, a rename for a cut within the image, the copy under its progress window, and for a cut across filesystems the removal of the sources (deleted from the image, or sent to the Recycle Bin) only after a copy that reported no problem, with both results kept.</td>
+</tr>
+<tr>
+<td><code>CommandDeviceOpening.cs</code></td>
+<td>Open Device, and Check Filesystem on a device, as one command sequence on the worker: the device asked for when the menu has not chosen one, its partition table read, the rows that do not fit the device marked invalid (the device refused only when none fits), the partition asked for when there is a table, and the chosen range handed to the ordinary image-open sequence; nothing open is touched until a partition is chosen.</td>
+</tr>
+<tr>
+<td><code>CommandEditorBinding.cs</code></td>
+<td>The command worker&rsquo;s record of the editors open on Windows files: the two sets it keeps (editors that save into the image, which closing the image must deal with, and those that save to a Windows file) and what a finished Save As changes in them &ndash; an editor moves between the sets, and its original content stays with it until it closes.</td>
+</tr>
+<tr>
+<td><code>CommandEditorCoordinator.cs</code></td>
+<td>The main window&rsquo;s side of the editors: which editor windows exist and the id each has in the command system, the saves they hand over (an image entry&rsquo;s as a SaveEditor request carrying a snapshot, a Windows file&rsquo;s &ndash; already written by the editor &ndash; as the report of a fact), whether each editor&rsquo;s image is still open, and the worker&rsquo;s close questions, shown inside the editor only once its own work and saves have returned and answered from what really happened to the window.</td>
+</tr>
+<tr>
+<td><code>CommandImageOpening.cs</code></td>
+<td>Open Image and Check Filesystem on an image file as one command on the worker: the file&rsquo;s partition table read first with nothing open touched, the partition asked for when there is a table (the length always from the table, never the dialog), the ordinary Open or Check run on the chosen range, and &ndash; for a file with no table that will not mount whole &ndash; one chance to type the offset, with a note of what the file&rsquo;s first page holds.</td>
+</tr>
+<tr>
+<td><code>CommandImportControl.cs</code></td>
+<td>The engine callback for an editor&rsquo;s save into the image (one file imported under a temporary name before it replaces the entry): it lets the running command pause or stop the copy before the entry is touched, keeps that file&rsquo;s own failure where the import says only &ldquo;partial&rdquo;, and keeps a failure inside the callback apart from a user&rsquo;s cancel.</td>
+</tr>
+<tr>
+<td><code>CommandInputs.cs</code></td>
+<td>The command system&rsquo;s inputs &ndash; every window that asks the user for values (a Save As target, an image folder, a Windows file, a device, format options, a new file&rsquo;s name, Properties): the records of what was asked and what was chosen, the worker&rsquo;s acceptance of an input (with what its window needs read first), its hold on other work while a modal input is open, and its closing of inputs before an editor or the image is closed; and the UI&rsquo;s registry, which reports each input&rsquo;s end only once its window has really returned.</td>
+</tr>
+<tr>
+<td><code>CommandInterrupts.cs</code></td>
+<td>How a command running on the worker is interrupted and asks the user something: the checkpoint where a Cancel stops it and a pending Exit is asked about first (consent before cancellation), the wait for a question&rsquo;s answer that watches for Cancel and Exit, and the Exit question that takes a command&rsquo;s question down and, on a No, puts it back with what had been typed.</td>
+</tr>
+<tr>
+<td><code>CommandLayoutReader.cs</code></td>
+<td>The raw reader the partition-table parsers are given when the command system reads a disk&rsquo;s layout: it keeps the first read failure, with the engine&rsquo;s detail line, so a failed read is reported instead of coming out of the parsers&rsquo; fallbacks as an emptier layout &ndash; while a read past the disk&rsquo;s end (a table naming a place the disk does not have) answers &ldquo;not there&rdquo; without failing the layout.</td>
+</tr>
+<tr>
+<td><code>CommandLifetimes.cs</code></td>
+<td>The UI thread&rsquo;s watch over every window the command worker waits on &ndash; an input&rsquo;s picker, the partition and check windows, the editors &ndash; so that one that disappears without sending its close notice (its owner unwound with an exception, a disposal failed half-way) still has its owner&rsquo;s &ldquo;it has ended&rdquo; handler called, once, and can never hold the worker for good.</td>
+</tr>
+<tr>
+<td><code>CommandNativeControl.cs</code></td>
+<td>The managed side of the engine&rsquo;s callbacks during a command&rsquo;s copy or check, on the worker: each event copied out of engine memory at once, counted into the result (items copied, problems, notes), a destination that exists or a manifest-named file asked about (or settled by an earlier &ldquo;All&rdquo; answer, or quietly for a drag-out), progress published at a bounded rate, and any managed exception kept as the failure with the engine told to cancel.</td>
+</tr>
+<tr>
+<td><code>CommandNativeOperations.cs</code></td>
+<td>The command worker&rsquo;s native steps for the copies, the raw copy (with the image file&rsquo;s SHA-256 written beside it), the format, the check (and what an expansion may do after it), the resize and the capacity test, each through its EngineSession.cs helper with the command&rsquo;s own callbacks; and the read-out of an image file into a stage file of its own for an editor, which this code deletes on every failure and hands, on success, to the opening sequence and the editor.</td>
+</tr>
+<tr>
+<td><code>CommandNativeSteps.cs</code></td>
+<td>The command worker&rsquo;s step runner: one case per sequence step, each handing the captured request to its EngineSession.cs helper (open, close, list, volume facts, link text, disks, image facts, a table write, the edits, a save that asks before replacing) or to a function of its own (the layout and a picker&rsquo;s partition choices, read so a failed read is reported rather than taken for an empty disk; where a disk&rsquo;s backup GPT ends; New Image&rsquo;s file), returning each helper&rsquo;s own result record; and the release of the stage files a finished request carried.</td>
+</tr>
+<tr>
+<td><code>CommandNavigation.cs</code></td>
+<td>Moving the image pane to another folder, and the record of a finished folder listing that the worker hands to a window: the worker&rsquo;s current folder for the main pane (the one a later change re-lists) moves only once the new folder has been read; the folder pickers&rsquo; listings travel in the same record but never move it.</td>
+</tr>
+<tr>
+<td><code>CommandOperations.cs</code></td>
+<td>The ordinary operations&rsquo; sequences: the dispatcher that sends each request kind to its sequence or runs its one step (an edit first asking for its name or its Delete, then taking write access, then re-listing the pane, a New File then opening in its editor); the opening of an image file in an editor, its viewer chosen &ndash; asking about binary or too-large content &ndash; before the editor is registered; the plain-text fallback for a structured file that would not load; the partition window&rsquo;s disk operations with their questions, progress and layout re-read; and the records these hand the UI.</td>
+</tr>
+<tr>
+<td><code>CommandPickerBranch.cs</code></td>
+<td>The listings an image folder picker needs to open its tree at a starting folder: the root and every folder down to it, read in turn as one sequence on the worker and handed over together, ending at a folder that cannot be listed with the ones before it kept.</td>
+</tr>
+<tr>
+<td><code>CommandPickerFolder.cs</code></td>
+<td>The image Save As dialog&rsquo;s New Folder, run as one command on the worker: the name asked for and checked, the filesystem made writable if need be, the folder made and committed, and the folder it was made in and the new folder listed back so the dialog shows and enters it &ndash; with the request&rsquo;s payload that binds it to the dialog and its editor&rsquo;s destination, and the result&rsquo;s record that the folder was made even when its listings did not finish.</td>
+</tr>
+<tr>
+<td><code>CommandProgressWindows.cs</code></td>
+<td>The progress windows a command shows while the worker runs it &ndash; the copy progress dialog or the &ldquo;working&rdquo; box &ndash; opened, updated and closed by the command&rsquo;s progress views and keyed by its serial: the window&rsquo;s Cancel posts a Cancel request, a window that cannot be built cancels its command, and a question (or the Exit question) is asked over a live progress window rather than behind it.</td>
+</tr>
+<tr>
+<td><code>CommandQuestionPresenter.cs</code></td>
+<td>The window side of the worker&rsquo;s questions: each question shown over the window it belongs to (looked up from the id it carries &ndash; an editor, a picker, a progress, check or partition window, or the main window), in the dialog its kind uses &ndash; the Yes / No warnings worded from what the request captured, the binary-file, conflict, metadata-clash, name, offset and partition-write questions, and the dialogs a sequence asks for its own values (the partition window&rsquo;s format options, partition file, table kind and new partition; New Image&rsquo;s file and size, its Browse and its Match a Device, which refuses a disk longer than the size box takes; the device an operation works on; Read Device&rsquo;s device, range and file; Write Device&rsquo;s and Partition/Format&rsquo;s image files) &ndash; and answered through its own display, Cancel when it cannot be shown; the record of each display&rsquo;s popups and of the editors&rsquo; close questions shown for it, so an Exit can close them; and the draft of a name or offset question, kept across an Exit declined.</td>
+</tr>
+<tr>
+<td><code>CommandQuestions.cs</code></td>
+<td>The question a running command asks, as the worker and the windows share it: the question, which outlives any one popup; the display reference each showing gets, which alone may answer while current; the answer; the draft typed into a question, kept so it can be shown again after an Exit is declined; and the services a command&rsquo;s steps use &ndash; ask, check for an interrupt, publish a view.</td>
+</tr>
+<tr>
+<td><code>CommandRawSequence.cs</code></td>
+<td>The raw copies as command sequences: Read Device (a whole device, or only through its backup GPT, to an image file) and Write Device (a plain or compressed image to a device, always read back), and the partition window&rsquo;s Read, Write and Erase of one partition &ndash; each checking the captured request, inspecting the image file or the GPT just before acting, asking before anything destructive, and running the copy under its progress window; after a partition write or erase the layout is read again.</td>
+</tr>
+<tr>
+<td><code>CommandRecycleSources.cs</code></td>
+<td>The last step of a cut from Windows into the image: once every item has been copied, the Windows originals are sent to the Recycle Bin one at a time through the framework&rsquo;s Visual Basic file calls (Windows&rsquo; own dialog when one cannot be removed), stopping at the first that cannot be removed or is cancelled; the copies in the image stay whatever happens.</td>
+</tr>
+<tr>
+<td><code>CommandSequences.cs</code></td>
+<td>The command worker&rsquo;s gate and its whole sequences: every request held first to the present state (is a filesystem open, which window owns the disk, is it the same open as when asked), then run start to finish &ndash; leaving the open filesystem (Close and Continue, each editor asked to save, the session closed), opening one read-only or reopening it writable on the first change, saving an editor, the check and partition windows&rsquo; openings and closes (New Image&rsquo;s file and size, and Partition/Format&rsquo;s disk or disk image, asked as questions of their own sequence before anything is closed), the risk-warnings option, and Exit or the restart as Administrator.</td>
+</tr>
+<tr>
+<td><code>CommandStage.cs</code></td>
+<td>The staged files a command takes its content from (an editor&rsquo;s save, a new file&rsquo;s first content): each a file of its own, written whole, flushed to disk and closed before any command gets it, with a token that deletes it exactly once or hands it on; and the background job that writes the hex editor&rsquo;s save &ndash; its file with the changed bytes laid over it &ndash; passing the result to the UI through one atomic exchange.</td>
+</tr>
+<tr>
+<td><code>CommandSystem.cs</code></td>
+<td>The command system&rsquo;s core: its one worker thread, which runs each request&rsquo;s whole sequence before taking the next; the admission of posted requests by their scheduling class (interrupts first, newest-value streams replaced, duplicates dropped, fresh user work refused while busy or exiting); the drag reservation that keeps the worker free while the UI waits inside a drag; the publication of views to the UI; and the end of the queue at Exit.</td>
+</tr>
+<tr>
+<td><code>CopyForms.cs</code></td>
+<td>The three windows a copy shows, all modal: the progress dialog (the item or the raw phase being worked on, a bar, and the counts &ndash; items, or sectors, MiB or steps for a device copy, a format&rsquo;s zeros, the image&rsquo;s SHA-256 and the capacity test &ndash; with a Cancel that asks the copy to stop and stays up until it has), the question asked when a destination file already exists (Overwrite, Overwrite All, Skip, Skip All, Cancel), and the question asked when a folder extracted with the metadata manifest holds an entry of the manifest&rsquo;s own name (keep that entry, keep the manifest, or Cancel).</td>
+</tr>
+<tr>
+<td><code>DebugValues.cs</code></td>
+<td>The values that exist only in a DEBUG build, for testing: project-wide globals read and written directly, the whole file and every use of it inside #if DEBUG, each set only from the command line at start-up (<code>Program.cs</code>) or a constant, and never kept in the registry or a file.</td>
+</tr>
+<tr>
+<td><code>DiskLayoutForm.cs</code></td>
+<td>The partition window behind File &gt; Partition/Format: the disk drawn as a bar with its partitions coloured by what they hold, the same in a list, and the commands &ndash; a new table (MBR, GPT or none), Add and Delete Partition, Make and Expand Filesystem, a partition read to a file, written from one or erased, Write Table (warned), Revert, Refresh, Test Capacity and Open &ndash; each press with work posted through the host to the command worker, which asks its questions, makes the edit on a copy of the table and hands it back; nothing reaches the disk until Write Table. With it, the New Table and Add Partition dialogs.</td>
+</tr>
+<tr>
+<td><code>DragData.cs</code></td>
+<td>A drag out of the image pane: the data object that offers Windows a file list from the start but extracts the items only when another program actually takes the drop (and never for a drop on this program&rsquo;s own Windows pane), and the small window, on a thread of its own, that shows that extract&rsquo;s progress and Cancel.</td>
+</tr>
+<tr>
+<td><code>EditorSaveMenu.cs</code></td>
+<td>What the text and hex editors share for Save As: the Save As item made into its two choices (into the image, or to a Windows file), the check a chosen Windows path must pass (a plain file in an existing folder, no device name, never over the image, the editor&rsquo;s work file or its original, or inside the staging folder), and the question asked when an editor closes while its image is gone &ndash; save to Windows, discard, or keep editing.</td>
+</tr>
+<tr>
+<td><code>engine.rc</code></td>
+<td>The Win32 resources compiled into the exe: the version Explorer shows, the program icon, the engine DLL itself (so a release build is one file) and the About window&rsquo;s picture, under the ids <code>EngineNative.cs</code> looks them up by.</td>
+</tr>
+<tr>
+<td><code>EngineNative.cs</code></td>
+<td>The program&rsquo;s side of the engine DLL: finding it (beside the exe, or extracted from inside the exe to a per-run temporary folder), loading and unloading it by hand, binding every engine function to a delegate, the structures and constants mirrored from <code>engine\bifrost_engine.h</code>, and the plain-language sentence for each status code.</td>
+</tr>
+<tr>
+<td><code>EngineSession.cs</code></td>
+<td>The program&rsquo;s calls into the engine, one synchronous function per operation &ndash; open and close, list, the edits and an editor&rsquo;s save, copies, check, resize, format, raw device copies, a partition table&rsquo;s write and the capacity test &ndash; called only by the command worker&rsquo;s native steps, so every engine call runs on that one thread; the result record each fills; and the check, copy and delete controls whose callbacks the engine calls while an operation runs, handing each event to the command&rsquo;s own control (the delete&rsquo;s opening the copy window once it grows large, with Cancel).</td>
+</tr>
+<tr>
+<td><code>EntryIcons.cs</code></td>
+<td>The image pane&rsquo;s own icons &ndash; folder, file, symbolic link, device, pipe and the &ldquo;..&rdquo; way up &ndash; drawn from a few shapes on a 16-unit grid at any size, with no picture files; the folder and page drawings are shared with the toolbar&rsquo;s pictures.</td>
+</tr>
+<tr>
+<td><code>FsPropertiesForm.cs</code></td>
+<td>The Filesystem Properties window: where the open filesystem is (file or device, and its byte range), its type as blkid would name it, label, open mode, journal notes, capacity, used and free (with a bar), block and inode counts, and its feature list exactly as dumpe2fs prints it &ndash; read from the engine just before it opens; Copy puts every row on the clipboard.</td>
+</tr>
+<tr>
+<td><code>HexEditForm.cs</code></td>
+<td>The program&rsquo;s own hex editor, for a file in the image or a Windows file: an offset column, sixteen bytes a row in hex and as text, typing that overwrites (never inserts) so a file of any size is shown without holding it in memory; Save, Save As, Go to Offset and a remembered text size.</td>
+</tr>
+<tr>
+<td><code>ImageFolderForm.cs</code></td>
+<td>The folder picker for the inside of the open image: a tree of its directories, each listed by the command worker the first time it is opened, which starts expanded down to the folder it is given (one request lists the way down).</td>
+</tr>
+<tr>
+<td><code>ImageSaveForm.cs</code></td>
+<td>The Save As dialog for saving an editor&rsquo;s file into the open image (whatever it was opened from), shaped like the Windows one: a tree of the image&rsquo;s directories and a list of the entries in the one shown, every listing a request to the command worker bound to that image, with Up, New Folder (asked, made and listed back by the worker) and a name box that also takes a path inside the image or a Windows drive path (which sends the save to Windows), held to FAT&rsquo;s name rules on a FAT image; it only chooses &ndash; the editor&rsquo;s save writes, and the worker asks before replacing a file.</td>
+</tr>
+<tr>
+<td><code>MainCommand.cs</code></td>
+<td>The main window&rsquo;s side of the command system: its start and its shutdown through the worker&rsquo;s Exit; the renderers that show what the worker publishes (state, folder listings, opens, editors and viewers, questions, inputs, progress, the check and partition windows); the partition window&rsquo;s view, which posts its buttons&rsquo; requests and holds back questions while its own message boxes are up; the routing of every admitted input to its dialog or picker &ndash; file names, devices, Read Device&rsquo;s choices, Properties, an editor&rsquo;s Save As target, the Windows-pane actions &ndash; with the request each choice becomes posted only after the dialog has gone; and the reports of copies, raw copies, checks and partition work. It runs no engine work itself.</td>
+</tr>
+<tr>
+<td><code>MainForm.cs</code></td>
+<td>The main window: the image pane on the left (an image file&rsquo;s or a device partition&rsquo;s filesystem &ndash; ext2/3/4, FAT or exFAT) and the Windows pane on the right, each with its path row, toolbar, five views, sorting and column sizing; the menus and the right-click menus; and the click side of every command &ndash; the selection, folder and state captured and posted to the command worker (<code>MainCommand.cs</code> and the <code>Command*</code> files), the only thing that reaches the engine: Extract and Import, drag and drop and the clipboard, New Folder, New File, Rename, Delete and Properties in either pane, Open and Open As, Enable Writing, Open, Read, Write and Partition Device with the restart as Administrator, New Image, Check Filesystem and its Repair. Also the Windows pane&rsquo;s own reading and its actions (run once the worker admits them), the making of the editors and viewers the worker opens, the hand-over of their saves to the editor coordinator, and the remembered window, panes and options.</td>
+</tr>
+<tr>
+<td><code>make_version.bat</code></td>
+<td>The build&rsquo;s version number: reads <code>version.txt</code> (the last successful build&rsquo;s MAJOR.MINOR.BUILD), refuses anything but three plain numbers, steps BUILD for a build of the program (or keeps it for a test build), and writes the number for the compiler, for <code>engine.rc</code>, and for <code>version.txt</code> afterwards.</td>
+</tr>
+<tr>
+<td><code>MessageForm.cs</code></td>
+<td>The program&rsquo;s own message box, used everywhere MessageBox.Show would be: the same button sets, icons, sounds, default and cancel buttons and Ctrl+C copy as the Windows box, but in the dialog font the caller passes (the Windows box takes none); plus a variant that opens with a red warning heading for a question that must be read. Self-contained.</td>
+</tr>
+<tr>
+<td><code>NewImageForm.cs</code></td>
+<td>Two small dialogs: the one that asks for a new image&rsquo;s file and exact size (in bytes, sectors, KiB, MiB or GiB, with &ldquo;Match a Device&rdquo; to copy a card&rsquo;s length) for New Image, or for a partition&rsquo;s filesystem type, block size, label and an optional erase for Make Filesystem, checking every answer before it closes; and the &ldquo;working&rdquo; box with a moving bar, which the progress windows show for a command whose progress view asks for it (work with no progress to report).</td>
+</tr>
+<tr>
+<td><code>OpenScan.cs</code></td>
+<td>What Open needs before a window appears, and what an editor knows about its file: deciding from a file&rsquo;s content whether it is text, a picture or binary (known signatures, NUL and control bytes in its first 64 KiB); which structured editor takes it (by name, a printer config&rsquo;s kind &ndash; Klipper, Moonraker, KlipperScreen &ndash; by its sections, an unnamed file only if it reads as JSON); the question asked before a binary file is opened; and the descriptor every editor holds (where the file is now, the command facts its saves carry, and where it was opened from).</td>
+</tr>
+<tr>
+<td><code>PaneListView.cs</code></td>
+<td>The list control both panes use: a list view that paints double-buffered, reports when the USER resizes a column, lays the List and Small Icons views out on an even grid sized to the widest name (with a name cap, cut names shown whole on hover), and handles item check boxes &ndash; a filled box for the &ldquo;..&rdquo; row, a select-all box in the heading, and a double-click that opens without toggling a tick. Self-contained.</td>
+</tr>
+<tr>
+<td><code>PaneSorter.cs</code></td>
+<td>The order of a pane&rsquo;s rows: &ldquo;..&rdquo; first, folders before files, then the chosen column ascending or descending, with the names breaking ties &ndash; sizes compared as numbers, ext4 names case-sensitively and Windows names ignoring case.</td>
+</tr>
+<tr>
+<td><code>PartitionForm.cs</code></td>
+<td>Two dialogs for choosing where to open: the partition dialog (a disk image&rsquo;s or device&rsquo;s MBR, logical or GPT partitions with what each holds, or a typed byte offset) with the simple table reader that fills it; and the device picker (the physical disks, portable ones by default, with the &ldquo;how much&rdquo; row for reading or writing an image), plus the size, model and bus wording other windows share.</td>
+</tr>
+<tr>
+<td><code>PartitionTable.cs</code></td>
+<td>A disk&rsquo;s MBR or GPT partition table as bytes, for the partition window: reading one (keeping every field, boot code and vendor GUIDs included, so it can be written back), the checks a table must pass, building the sectors that write it (protective MBR, both GPT headers and entry copies with their CRC-32s, or an erase) and the erase of an old GPT&rsquo;s headers the new table leaves, the deep copy the worker edits, the free gaps and new entries the window edits with, the common type names, and a probe of what each partition&rsquo;s first page holds (ext2/3/4, FAT, exFAT, NTFS, squashfs, swap). It uses nothing else of the program; its reads go through the engine via <code>CommandLayoutReader.cs</code>, its writes via <code>EngineSession.cs</code>.</td>
+</tr>
+<tr>
+<td><code>PictureViewForm.cs</code></td>
+<td>The picture viewer: a look-only window for a PNG or JPEG entry of an image, showing it at its real size when it fits and scaled down to fit when it does not.</td>
+</tr>
+<tr>
+<td><code>Program.cs</code></td>
+<td>The entry point: the command line (&ndash;help and &ndash;version answered on the console with no window; the device commands an elevated restart resumes with; &ndash;after; &ndash;debug; in a DEBUG build, &ndash;debug-copy-delay), the debug log beside the program, whether the process is elevated, the one dialog font and warning-heading font every dialog is given, loading the engine before the main window opens, and the exit codes.</td>
+</tr>
+<tr>
+<td><code>PropertiesForm.cs</code></td>
+<td>The Properties dialog for one entry of the image: its facts read-only (path, type, size, inode, links, times, a link&rsquo;s target), and its mode, owner and group to change &ndash; the mode both as octal text and as a grid of permission boxes with the ls form beside them, the two kept in step; it validates on OK and hands the values back for the main window to apply.</td>
+</tr>
+<tr>
+<td><code>PromptForm.cs</code></td>
+<td>The small dialog that asks for one line of text (a name, a hex file&rsquo;s size, a Find text, a Go To offset), with OK and Cancel; the caller reads whether OK was pressed and what was typed once it closes.  For a name the worker asks for, it also reports what is typed as the question&rsquo;s draft, so a question an Exit hides comes back as it was.</td>
+</tr>
+<tr>
+<td><code>ShellIcons.cs</code></td>
+<td>The Windows pane&rsquo;s icons and type names, as Explorer shows them: asked of the Windows shell (by extension where one answer serves every file of a kind, by real path for folders and files with icons of their own), copied into the program&rsquo;s own lists at whatever size View &gt; Text Size sets; plus the shell&rsquo;s icon for a menu item, This PC and the Downloads folder, and the shell&rsquo;s own Properties window.</td>
+</tr>
+<tr>
+<td><code>TextEditForm.cs</code></td>
+<td>The program&rsquo;s own text editor, for a text file in the image or a Windows file: it keeps the file&rsquo;s line endings, encoding (UTF-8, or Latin-1 byte for byte), byte-order mark and final line ending exactly as they were, offers Find, word wrap and a remembered text size, shows a file holding NULs read-only, and saves with Save or Save As (to the image or to Windows): each save captured whole when asked for, an image save handed to the command worker as a staged file, a Windows file written by the editor through a temporary file that replaces it.</td>
+</tr>
+<tr>
+<td><code>ToolIcons.cs</code></td>
+<td>The pictures on the main window&rsquo;s toolbar buttons &ndash; back, up, copy across, cut, copy, paste, new folder and file, rename, delete, properties, refresh, views, open, close and new image, enable writing &ndash; drawn from a few shapes on a 16-unit grid at the toolbar&rsquo;s size, sharing the folder and page drawings of <code>EntryIcons.cs</code>.</td>
+</tr>
+<tr>
+<td><code>WindowQueue.cs</code></td>
+<td>A window&rsquo;s own command queue, one in each of the three editors and of the dialogs with work of their own (the partition dialog, the disk picker, New Image, Filesystem Properties, the image Save As, Add Partition): its controls&rsquo; handlers only post an item and return; the queue runs the items one at a time, each to its end, through the window&rsquo;s own runner on the UI thread, drops an item equal to one waiting or running, and never runs one item inside another &ndash; the window reaching the main command queue only by a request an item posts, its reply coming back as another item.</td>
+</tr>
+</tbody>
+</table>
+<h3><code>gui\lib\</code></h3>
+<p>Three small general-purpose pieces, compiled into the exe with the rest of
+<code>gui\</code>.</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it holds, and what for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>BusyModalForm.cs</code></td>
+<td>The &ldquo;please wait&rdquo; window for slow work in the structured editor and the hex editor&rsquo;s save: the work run on a background thread under a modal box with a moving bar, shown only when the work outlasts a short delay, its exception handed back to the caller; and a second, modeless mode with a measured bar for slow work that must stay on the UI thread.</td>
+</tr>
+<tr>
+<td><code>DebugLog.cs</code></td>
+<td>The program&rsquo;s one diagnostic log: timed lines written under a lock from any thread, to the console&rsquo;s error stream or a log file, with the file&rsquo;s opening (overwrite, rotate or append, keeping a set number of rotated logs) done in one call that never fails the program.</td>
+</tr>
+<tr>
+<td><code>DebugLogForm.cs</code></td>
+<td>Help &gt; Debug Log&rsquo;s window: the whole log file in a read-only, fixed-pitch text box, re-read whenever the file&rsquo;s size changes (checked twice a second) so it follows a log still being written, with Select All, Copy and Close.</td>
+</tr>
+</tbody>
+</table>
+<h3><code>gui\json\</code></h3>
+<p>The structured editor for JSON, INI, the Klipper family&rsquo;s configuration
+files and registry exports, compiled into the exe with the rest of <code>gui\</code>:
+the editor window, and the document, format and tree code it works on.</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it holds, and what for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>JsonEditForm.cs</code></td>
+<td>The editor window: the document as a tree (opened level by level) beside an edit panel for the selected entry&rsquo;s key, value, type and comments, with in-place editing in the tree, undo and redo, the right-click menu&rsquo;s additions, copies and deletes, Find / Replace (its own modeless window), the Colors dialog, and the small dialogs that ask for a name; it reads the file it was opened on (and again in another format, Reopen As), writes a Windows file itself through a temporary file and hands an image entry&rsquo;s save to the command worker as a staged snapshot, offers Save As to the image or Windows, keeps its size, splitter, text size and colours in the registry, reports its own work&rsquo;s return to the command system, and refuses to close while a save is unanswered; its menus&rsquo; and right-click requests and its close&rsquo;s questions run through a queue of its own (WindowQueue.cs), one at a time, and the close question and the Colors dialog are editor-modal, the rest of the program carrying on while they are up.</td>
+</tr>
+<tr>
+<td><code>VoorheesCfg.cs</code></td>
+<td>The Klipper family&rsquo;s configuration files &ndash; Klipper&rsquo;s printer.cfg, Moonraker&rsquo;s moonraker.conf, KlipperScreen&rsquo;s KlipperScreen.conf &ndash; read by each program&rsquo;s own rules: what a line is (comment, [section], [include path], name = value), where each program&rsquo;s inline comments start, Moonraker&rsquo;s escapes, multi-line values shown as source, the auto-saved block at the end of a file, and the family&rsquo;s answers to the editor&rsquo;s questions &ndash; kinds, valid names and values, where entries may go, and the warnings on opening.</td>
+</tr>
+<tr>
+<td><code>VoorheesDocument.cs</code></td>
+<td>The editor&rsquo;s model of a document in any of its formats &ndash; values, containers and comments held losslessly with the text around them, addressed by position paths &ndash; and everything that changes it: each user action (set a value, rename, comment, insert, add, paste, delete, Raw edit) built from recorded changes, undo and redo, find, and replace.</td>
+</tr>
+<tr>
+<td><code>VoorheesFormat.cs</code></td>
+<td>The one place that knows which module handles which format: the format ids (JSON, INI, the three Klipper-family dialects, REG), telling a file&rsquo;s format from its name or its contents, and a switch per format-dependent question &ndash; reading, writing, rendering an entry, comments, kinds, keys, labels, warnings &ndash; that calls that format&rsquo;s module by name; also the question a format asks before adding an entry whose name matters.</td>
+</tr>
+<tr>
+<td><code>VoorheesIni.cs</code></td>
+<td>Classic Windows INI files: what one line is (a comment, a [section] header with anything after its &ldquo;]&rdquo; as its comment, a key=value entry split at the first &ldquo;=&rdquo;, or a key on its own), each line&rsquo;s pieces kept so the file writes back unchanged, and INI&rsquo;s answers to the editor&rsquo;s questions &ndash; kinds, valid keys and values, comments, where sections may go, and the warning for repeated names.</td>
+</tr>
+<tr>
+<td><code>VoorheesJson.cs</code></td>
+<td>JSON, read and written by the editor&rsquo;s own code with no JSON library: a strict reader (RFC 8259 plus // and block comments) that keeps every character &ndash; tokens as written, whitespace and comments placed on the entries by fixed rules &ndash; so an unedited file writes back byte for byte, with every error given its line and column; a writer that generates only what was edited, in the file&rsquo;s own indentation and colon spacing; and JSON&rsquo;s answers to the editor&rsquo;s questions &ndash; kinds, new entries, numbers kept exactly as typed, comments, the Raw box, and the warnings for repeated keys and a first comment.</td>
+</tr>
+<tr>
+<td><code>VoorheesLines.cs</code></td>
+<td>The line engine shared by INI, the Klipper family&rsquo;s configurations and REG files: the text split into lines with every line ending, blank line and indentation kept so the file writes back byte for byte, each line handed to its format to read, continuation lines and auto-saved blocks gathered, comments above a section header moved to it, new items given the file&rsquo;s own spacing, and the Raw box&rsquo;s text read back as one item.</td>
+</tr>
+<tr>
+<td><code>VoorheesReg.cs</code></td>
+<td>Windows registry exports (.reg): the header line, [key] and [-key] lines, value lines in every form regedit writes (strings, dword, hex, hex(N), wrapped hex, deletes), each kept exactly as written until edited and then generated in regedit&rsquo;s own form and wrapping; the editor&rsquo;s rules for keys, values, hives and names, and the open warnings.</td>
+</tr>
+<tr>
+<td><code>VoorheesText.cs</code></td>
+<td>File bytes to text and back for every format: a byte order mark decides the encoding, unmarked bytes are taken as strict UTF-8, else the Windows ANSI code page if it gives the bytes back exactly, else ISO-8859-1; and the line ending a file uses.</td>
+</tr>
+<tr>
+<td><code>VoorheesTreeView.cs</code></td>
+<td>The editor&rsquo;s tree control: the document shown one node per item, built only as far as it is opened and kept up to date change by change rather than rebuilt; labels for every format (with repeated keys marked, comments in grey and a raw-text view), the coloured keys and values drawn over the control&rsquo;s own painting at exactly its character positions, the in-place value edit that keeps the key in view, and a progress window for opening or removing a very large branch.</td>
+</tr>
+</tbody>
+</table>
+<h3><code>engine\</code></h3>
+<p>The engine, <code>bifrost_engine.dll</code>: BifrostFM&rsquo;s own C at the top of the
+folder, compiled by <code>build_engine.bat</code> (gcc) together with the open-source
+code in the sub-folders into one 64-bit DLL in <code>engine\out\</code>.</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it holds, and what for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bifrost_engine.h</code></td>
+<td>The engine&rsquo;s public interface, the one header a caller includes: every exported function, status code, flag and structure, with the contract each call keeps &ndash; mirrored by hand in the program&rsquo;s <code>gui\EngineNative.cs</code> and <code>EngineSession.cs</code>, and guarded by an API version the program checks when it loads the DLL.</td>
+</tr>
+<tr>
+<td><code>bifrost_engine.c</code></td>
+<td>The engine&rsquo;s core: opening and closing an image or device (with the system-disk guard and volume locks; a range with no ext2/3/4 filesystem tried as FAT or exFAT), flushing, browsing and the simple edits (make, remove, a tree removed entry by entry, rename, permissions, owner, times, links), and the internals every other engine file shares &ndash; the one-call-at-a-time gate (which keeps the ext-only calls off a FAT session), the error recorder, the path rules and their canonical form, and the directory reader.</td>
+</tr>
+<tr>
+<td><code>bfe_device.c</code>, <code>bfe_device.h</code></td>
+<td>The raw I/O beneath everything: opening a file or a real disk or volume and telling which it is, its size, sector, disk number and model; sector-aligned reads and writes; which disk Windows runs from; and locking and dismounting a disk&rsquo;s volumes before the disk is written.</td>
+</tr>
+<tr>
+<td><code>bfe_blockdev.c</code>, <code>bfe_blockdev.h</code></td>
+<td>The block device lwext4, the filesystem check and FatFs read and write through: an image file or a real disk presented as 512-byte blocks, with a device&rsquo;s sector alignment, the read-back that catches a card which does not keep its writes, and the read-only refusal.</td>
+</tr>
+<tr>
+<td><code>bfe_fatio.c</code>, <code>bfe_fatio.h</code></td>
+<td>FatFs&rsquo;s device layer: the five <code>disk_*</code> functions and the FAT timestamp FatFs asks for, written over the engine&rsquo;s block device, so a FAT filesystem is read and written within its range with the same device, read-only and read-back rules as an ext4 one.</td>
+</tr>
+<tr>
+<td><code>bfe_fat.c</code>, <code>bfe_fat.h</code></td>
+<td>The engine&rsquo;s FAT side: a FAT12, FAT16, FAT32 or exFAT filesystem mounted through FatFs where no ext2/3/4 one is found, read-only or writable &ndash; the directory listing and one path&rsquo;s facts (entries as files and directories with a made-up mode and FAT&rsquo;s local time turned into UTC), the volume&rsquo;s facts, the helpers for the writes FatFs has no single call for (a remove past the read-only attribute, a tree removed whole, a time set in local time), the engine&rsquo;s one translation of a FatFs result into an errno, the letter-case fold FatFs matches names by, the largest file a volume holds, the unmount &ndash; and the making of a new FAT volume: its cluster size and label judged before anything is written, FatFs&rsquo;s formatter over the range, the label written where FAT keeps it (the root&rsquo;s entry and the boot sector&rsquo;s field).</td>
+</tr>
+<tr>
+<td><code>bfe_fs.c</code>, <code>bfe_fs.h</code></td>
+<td>The file calls the engine&rsquo;s walks and edits make, written once for both kinds of filesystem: open, read, write and close a file, remove, make and remove directories, rename, set a mode, an owner or a time, and read or make a link &ndash; each going to lwext4 on an ext2/3/4 session and to FatFs on a FAT one, every result in lwext4&rsquo;s errno form, and what FAT cannot hold (modes, owners, links) refused as unsupported.</td>
+</tr>
+<tr>
+<td><code>bfe_internal.h</code></td>
+<td>What the engine&rsquo;s own files share and export to nobody: the declarations of the core internals (<code>bifrost_engine.c</code>) and the text helpers (<code>bfe_util.c</code>), the shared constants, and the map of which function-name prefix belongs to which file.</td>
+</tr>
+<tr>
+<td><code>bfe_util.c</code></td>
+<td>The text helpers every part of the engine uses: joining image and Windows paths, converting names between UTF-8 and UTF-16 (refusing malformed ones), and deciding whether an ext4 name can be a Windows file name.</td>
+</tr>
+<tr>
+<td><code>build_engine.bat</code></td>
+<td>The engine&rsquo;s build: every source of lwext4, the e2fsprogs pieces, the compression libraries, FatFs and the engine named one by one, compiled with gcc (the engine&rsquo;s own files to its warning bar) and linked with the compiler&rsquo;s runtime into one self-contained DLL.</td>
+</tr>
+<tr>
+<td><code>bfe_capacity.c</code></td>
+<td>The capacity test: how much of a card really holds data &ndash; tagged test blocks written at sixty-four points across it, all written before any is read back, everything put back afterwards, and the boundary of a counterfeit card&rsquo;s real size narrowed by halving.</td>
+</tr>
+<tr>
+<td><code>bfe_resize.c</code></td>
+<td>Growing a filesystem to fill its partition or image &ndash; e2fsprogs&rsquo; resize2fs run inside the engine in place of its command-line front end, refusing a filesystem that has not been checked, and reporting progress as a check does.</td>
+</tr>
+<tr>
+<td><code>bfe_fsck.c</code></td>
+<td>The filesystem check: e2fsprogs&rsquo; e2fsck run inside the engine in place of its command-line front end &ndash; report-only or repair, never a question asked &ndash; with its text and progress handed to the program as it goes, a fatal error returned instead of ending the process, and a repair whose writes a failing card did not keep reported as such.</td>
+</tr>
+<tr>
+<td><code>bfe_fsck_io.c</code>, <code>bfe_fsck_io.h</code></td>
+<td>The bridge that lets the built-in e2fsck and resize2fs reach a disk: libext2fs&rsquo; I/O interface implemented over the engine&rsquo;s own block device, so they read and write exactly the image, device or partition the engine has, with the same sector and read-only rules.</td>
+</tr>
+<tr>
+<td><code>bfe_mkfs.c</code></td>
+<td>Making an empty filesystem &ndash; in a new image file of a chosen size, or in place over a partition of a card or disk, with the guards a device needs: ext2 / ext3 / ext4 with lwext4&rsquo;s formatter, then putting right what it leaves wrong (free counts, reserved inodes, a real UUID, the root&rsquo;s mode) so e2fsck accepts the result; FAT12/16, FAT32 or exFAT through <code>bfe_fat.c</code>.</td>
+</tr>
+<tr>
+<td><code>bfe_copy.c</code></td>
+<td>The three recursive copies &ndash; image to Windows, Windows to image, and within the image &ndash; with the rules for what cannot cross to NTFS (Unix modes, owners, links, names Windows refuses), the plain-text metadata manifest that records it and restores it on the way back, conflicts, progress and cancel.</td>
+</tr>
+<tr>
+<td><code>bfe_image.c</code></td>
+<td>Whole-device and raw-image work: a file&rsquo;s or device&rsquo;s facts, bounded raw reads and writes (how a partition table reaches the media), the dd-style raw copy between a device and an image file &ndash; with the system-disk, room and volume-lock guards, compressed sources, .xz output and the read-back verify &ndash; and the format and size of an image file.</td>
+</tr>
+<tr>
+<td><code>bfe_rawbatch.c</code></td>
+<td>A partition table written as one operation: every piece of the table (MBR, GPT headers and entry arrays) checked first &ndash; range, sector grid, overlap, the open session&rsquo;s own target, the system disk &ndash; then written under one open handle and, on a device, one holding of the disk&rsquo;s volume locks, so Windows never sees the table half written.</td>
+</tr>
+<tr>
+<td><code>bfe_compress.c</code>, <code>bfe_compress.h</code></td>
+<td>Compressed images: a streaming reader that recognises .xz, .gz, .zst and .zip by their first bytes, learns the image&rsquo;s size where the format records it without decompressing, and hands back raw bytes in constant memory; and the multi-threaded .xz writer used when a device or image is saved compressed.</td>
+</tr>
+</tbody>
+</table>
+<h3><code>engine\lwext4\</code> &ndash; BifrostFM&rsquo;s own files inside it</h3>
+<p>lwext4 is upstream code (see the table above); these files are ours,
+added to it for features it lacked, and its changed upstream files carry
+marked <code>BifrostFM patch N</code> blocks.</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it holds, and what for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>src\ext4_inline.c</code>, <code>include\ext4_inline.h</code></td>
+<td>The inline_data feature: reading a file or directory whose content lives inside its inode, presenting an inline directory as an ordinary directory block for listing and lookup, and converting an inline inode to a block-backed one before anything writes to it.</td>
+</tr>
+<tr>
+<td><code>src\ext4_casefold.c</code>, <code>include\ext4_casefold.h</code></td>
+<td>The casefold feature: which filesystems and directories are case-insensitive, folding a name for the directory index&rsquo;s hash, and comparing names by their folded forms (raw bytes when a name cannot be folded), as the Linux driver does.</td>
+</tr>
+<tr>
+<td><code>unicode\config.h</code>, <code>unicode\ext2_fs.h</code>, <code>unicode\ext2fs.h</code>, <code>unicode\ext2fsP.h</code></td>
+<td>Stand-ins for the e2fsprogs headers that its Unicode folding code (<code>nls_utf8.c</code>, mirrored beside them) includes, carrying only what that file and the casefold module need.</td>
+</tr>
+</tbody>
+</table>
+<h3><code>engine\e2fsprogs\shim\</code> and <code>engine\compress\lzma_config\</code> &ndash; BifrostFM&rsquo;s own files</h3>
+<p>What the mirrored e2fsprogs and liblzma sources need in place of their own
+configure-generated headers and the Unix pieces MinGW lacks.</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it holds, and what for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>e2fsprogs\shim\config.h</code></td>
+<td>e2fsprogs&rsquo; configuration for this compiler: configure&rsquo;s own results for the MinGW gcc, minus the threading and debug options the engine leaves out, plus the declarations of <code>mingw_missing.c</code>.</td>
+</tr>
+<tr>
+<td><code>e2fsprogs\shim\mingw_missing.c</code>, <code>mingw_missing.h</code></td>
+<td>The two Unix calls the e2fsprogs sources make with no feature test and MinGW lacks: <code>sbrk</code> (answered with NULL; only a timing report the engine never turns on would show it) and <code>qsort_r</code> (glibc&rsquo;s argument order over Microsoft&rsquo;s <code>qsort_s</code>).</td>
+</tr>
+<tr>
+<td><code>e2fsprogs\shim\sys\ioctl.h</code>, <code>sys\resource.h</code>, <code>termios.h</code></td>
+<td>Empty stand-ins for POSIX headers that e2fsck includes unconditionally but takes nothing from in this build.</td>
+</tr>
+<tr>
+<td><code>compress\lzma_config\config.h</code></td>
+<td>liblzma&rsquo;s configuration, written by hand: .xz with the LZMA2 filter only, read and written, the three integrity checks, and the multi-threaded encoder on Windows threads.</td>
+</tr>
+</tbody>
+</table>
+<h3><code>tools\</code></h3>
+<p>Development tooling, not part of the program: the tool that draws the
+artwork in <code>gui\art\</code>, whose two files are committed so the program builds
+without it.</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it holds, and what for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MakeIcon.cs</code></td>
+<td>Draws BifrostFM&rsquo;s artwork in code &ndash; a sword over a rainbow for the small icon sizes, a penguin as Heimdall for the large ones &ndash; each size drawn at four times its size and reduced, and writes the multi-size <code>BifrostFM.ico</code> and the 256-pixel <code>BifrostFM.png</code> the About window shows.</td>
+</tr>
+<tr>
+<td><code>build_icon.bat</code></td>
+<td>Compiles <code>MakeIcon.cs</code> with the .NET Framework&rsquo;s own compiler and runs it into <code>gui\art\</code>; needed only after the drawing is changed.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="documents">Documents</h2>
+<p><code>README.md</code> says what the program does, how to run it and how to build it;
+<code>LICENSE</code> is the text of the GNU General Public License, version 2;
+<code>LWEXT4_UPSTREAM.md</code> lists the defects found in lwext4 and the patches that
+fix them, each as a diff against upstream; this file is the map. Each of
+<code>README.md</code>, <code>SOURCES.md</code> and <code>LWEXT4_UPSTREAM.md</code> has a rendered <code>.html</code>
+beside it.</p>
+</body>
+</html>
