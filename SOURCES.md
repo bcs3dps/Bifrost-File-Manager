@@ -215,7 +215,7 @@ without it.
 
 | File | What it holds, and what for |
 |---|---|
-| `MakeIcon.cs` | Draws BifrostFM's artwork in code -- a sword over a rainbow for the small icon sizes, a penguin as Heimdall for the large ones -- each size drawn at four times its size and reduced, and writes the multi-size `BifrostFM.ico` and the 256-pixel `BifrostFM.png` the About window shows. |
+| `MakeIcon.cs` | Draws BifrostFM's artwork in code -- a sword over a rainbow for the icon sizes below 32 pixels, a penguin as Heimdall from 32 up -- each size drawn at four times its size and reduced, and writes the multi-size `BifrostFM.ico` and the 256-pixel `BifrostFM.png` the About window shows. |
 | `build_icon.bat` | Compiles `MakeIcon.cs` with the .NET Framework's own compiler and runs it into `gui\art\`; needed only after the drawing is changed. |
 
 ## Documents

@@ -953,6 +953,7 @@ namespace BifrostFM
         /* The embedded engine: where it is in the exe and where it goes. */
         private const int    ENG_RESOURCE_ID   = 100;                   // the RCDATA resource holding the DLL (gui\engine.rc)
         internal const int   ENG_PICTURE_ID    = 101;                   // the RCDATA resource holding the About window's picture, a PNG (gui\engine.rc)
+        internal const int   ENG_ICON_DATA_ID  = 102;                   // the RCDATA resource holding the program icon's .ico bytes, every size, for the windows' icon (gui\engine.rc)
         private const int    ENG_RT_RCDATA     = 10;                    // the Win32 resource type "raw data"
         private const string ENG_TEMP_PREFIX   = "BifrostFM-engine-";   // prefix of the per-run folder under %TEMP%
 
@@ -1209,7 +1210,8 @@ namespace BifrostFM
         /* ENG_ReadResource:                                                  */
         /*                                                                    */
         /* Copy one raw-data resource out of this exe into managed memory --  */
-        /* the About window's picture.  (The engine DLL is read by            */
+        /* the About window's picture, or the program icon's .ico bytes for   */
+        /* the windows' icon (MainForm.cs).  (The engine DLL is read by       */
         /* Eng_ExtractEmbedded, which has its own reporting to do.)           */
         /*                                                                    */
         /* Arguments:                                                         */

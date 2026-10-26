@@ -1,4 +1,4 @@
-# BifrostFM 2.4.5
+# BifrostFM 2.4.12
 
 A Windows dual-pane file manager for Linux and FAT filesystems -- ext2,
 ext3 and ext4, and FAT12, FAT16, FAT32 and exFAT -- in **image files** and
@@ -237,10 +237,10 @@ gui\build_gui.bat release same
    single-file program as the one in this folder. Its intermediate files go
    to `gui\obj\`.
 
-**The version.** `gui\version.txt` holds the version, `2.4.5`. With `same`,
-the build carries that number unchanged, so it is the 2.4.5 release
-rebuilt. Without it, every build steps the last number by one (`2.4.6`,
-`2.4.7` ...) and writes the new number back to `gui\version.txt`.
+**The version.** `gui\version.txt` holds the version, `2.4.12`. With `same`,
+the build carries that number unchanged, so it is the 2.4.12 release
+rebuilt. Without it, every build steps the last number by one (`2.4.13`,
+`2.4.14` ...) and writes the new number back to `gui\version.txt`.
 
 **A development build** -- `build.bat` (or `gui\build_gui.bat`) with no
 arguments -- also

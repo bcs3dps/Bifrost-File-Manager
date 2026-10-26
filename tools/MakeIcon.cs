@@ -12,14 +12,16 @@
 /*                                                                            */
 /* writes, into the folder:                                                   */
 /*                                                                            */
-/*     BifrostFM.ico    the program icon: 16, 20, 24, 32, 40 and 48 pixels in */
-/*                      the SMALL design, 64 and 256 in the LARGE design      */
+/*     BifrostFM.ico    the program icon at every size in ICO_aiSizes: those  */
+/*                      below ICO_LARGE_FROM in the SMALL design, the rest in */
+/*                      the LARGE design                                      */
 /*     BifrostFM.png    the large design alone at 256 pixels, for the About   */
 /*                      window                                                */
 /*                                                                            */
 /* Both names are the ones gui\engine.rc compiles into the exe (the icon as   */
-/* ICON 1, the picture as RCDATA 101), from gui\art\, where build_icon.bat    */
-/* has this tool write them; rename one here and engine.rc must follow.       */
+/* ICON 1 and again as RCDATA 102, the picture as RCDATA 101), from           */
+/* gui\art\, where build_icon.bat has this tool write them; rename one here   */
+/* and engine.rc must follow.                                                 */
 /*                                                                            */
 /* THE TWO DESIGNS.  Small: a sword, point down, over a rainbow -- the        */
 /* Bifrost bridge and the sword that guards it, kept to shapes that survive   */
@@ -50,7 +52,7 @@ namespace BifrostFM.Tools
     {
         private const int   ICO_DESIGN      = 256;    // the side of the square every shape is placed in
         private const int   ICO_OVERSAMPLE  = 4;      // each size is drawn this many times larger, then reduced
-        private const int   ICO_LARGE_FROM  = 64;     // sizes from this up use the large design
+        private const int   ICO_LARGE_FROM  = 32;     // sizes from this up use the large design (32: the taskbar's and Alt+Tab's size at 100 % scaling); below it, the sword alone
         private const int   ICO_PNG_FROM    = 256;    // sizes from this up are stored in the icon as PNG; smaller ones as bitmaps
         private const int   ICO_EXIT_OK     = 0;      // exit code: both files written
         private const int   ICO_EXIT_USAGE  = 2;      // exit code: no output folder given
@@ -429,12 +431,12 @@ namespace BifrostFM.Tools
                 gfx.ScaleTransform(iBig / (float)ICO_DESIGN, iBig / (float)ICO_DESIGN);
 
                 if (iSize >= ICO_LARGE_FROM)
-                {   /* 64 pixels and up: room for the penguin. */
+                {   /* ICO_LARGE_FROM and up: room for the penguin. */
                     ICO_DrawLarge(gfx);
                 }
                 else
-                {   /* Below 64: sword and rainbow only, the shapes that   */
-                    /* survive at 16 pixels.                               */
+                {   /* Below ICO_LARGE_FROM: sword and rainbow only, the   */
+                    /* shapes that survive at 16 pixels.                   */
                     ICO_DrawSmall(gfx);
                 }
             }

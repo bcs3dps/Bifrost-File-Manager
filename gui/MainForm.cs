@@ -726,6 +726,8 @@ namespace BifrostFM
         /*--------------------------------------------------------------------*/
         internal MAIN_clsMainForm(string sStartImage, Font fntDialog, Font fntHeading)
         {
+            byte[] abIcon;
+
             /* The starting state, every field set before any control can     */
             /* raise an event that reads one: the two fonts kept (Main owns   */
             /* them); nothing open (read-only is how every image starts);     */
@@ -788,16 +790,41 @@ namespace BifrostFM
             Main_RestoreViews();
             Main_ApplyHostShown();
 
-            /* The window's icon is the exe's own (resource 1 in engine.rc),   */
-            /* read back from the running file, so there is one copy of it.    */
-            try
-            {   /* The framework throws if the file cannot be read (as found;   */
-                /* when that can happen to the running exe is not               */
-                /* established), so the failure is caught below.                */
-                this.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
-            }
-            catch (Exception)
-            {   /* Keep the framework's default icon. */
+            /* The window's icon: the program icon's own .ico bytes, every       */
+            /* size in it (ENG_ICON_DATA_ID in engine.rc), copied out of the     */
+            /* running exe's resources -- no file is read, so a copy run from    */
+            /* a network share has it too.  Built from the WHOLE .ico, the       */
+            /* Icon keeps every size, and the framework takes the size each      */
+            /* place needs from it: the 16-pixel picture (the sword) for the     */
+            /* title bar's corner, the 32-pixel one (the penguin) for the        */
+            /* taskbar and Alt+Tab.  An icon loaded as ONE picture -- read       */
+            /* back from the exe's file, or one size of its ICON resource --     */
+            /* is the alternative passed over: the corner would be that one      */
+            /* picture shrunk.  The program's dialogs take this window's icon    */
+            /* (frmX.Icon = this.Icon, or their owner's, which is this one's),   */
+            /* so this one load gives them theirs.  The Icon reads all the       */
+            /* bytes in, so the stream goes at once (framework behaviour, as     */
+            /* found).                                                           */
+            abIcon = ENG_clsNative.ENG_ReadResource(ENG_clsNative.ENG_ICON_DATA_ID);
+
+            if (abIcon != null)
+            {   /* Read: the window shows it.  Failing that (a build with no   */
+                /* such resource, or one that cannot be read), the             */
+                /* framework's default icon is kept.                           */
+                try
+                {   /* Bytes that are there but not an icon the framework can   */
+                    /* read make new Icon throw (as found; the exception's      */
+                    /* type not established here) -- caught below, so a bad     */
+                    /* icon can never stop the program starting.                */
+                    using (MemoryStream stmIcon = new MemoryStream(abIcon))
+                    {   /* The bytes as a stream, released when the block ends. */
+                        this.Icon = new Icon(stmIcon);
+                    }
+                }
+                catch (Exception)
+                {   /* Not a readable icon: the framework's default icon is   */
+                    /* kept, as for a missing resource.                       */
+                }
             }
 
             /* The events that drive the window's own life. */
