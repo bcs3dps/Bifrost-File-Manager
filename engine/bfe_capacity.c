@@ -66,10 +66,10 @@ typedef struct BFC_Sample
 {
     uint64_t ullAt;                         // the block's byte offset on the device, a multiple of the block size
     uint8_t *pbOriginal;                    // what was there before the test (a slice of BFC_Test.pbOriginals)
-    int      bWritten;                      // TRUE once the test block went out, so it must be put back
-    int      bHeld;                         // TRUE when the block read back exactly as written
+    bool     bWritten;                      // true once the test block went out, so it must be put back
+    bool     bHeld;                         // true when the block read back exactly as written
     uint64_t ullFoundAt;                    // when not held: the address named by a test block found here instead (a repeating card), else 0
-    int      bFoundOther;                   // TRUE when ullFoundAt is meaningful
+    bool     bFoundOther;                   // true when ullFoundAt is meaningful
 } BFC_Sample;
 
 /*----------------------------------------------------------------------------*/
@@ -90,7 +90,7 @@ typedef struct BFC_Test
     uint32_t         uiSamples;             // how many of aSamples are in use (fewer only when two would share a block)
     uint64_t         ullStepsDone;          // progress so far, in steps
     uint64_t         ullStepsTotal;         // the planned steps: read, write and read-back per sample, plus the halvings the narrowing would take
-    int              bCancelled;            // TRUE once the callback asked to stop
+    bool             bCancelled;            // true once the callback asked to stop
 } BFC_Test;
 
 /*----------------------------------------------------------------------------*/
@@ -130,7 +130,7 @@ static void BFC_Report(BFC_Test *pTest, uint32_t uiKind)
 
     if (pTest->pfnEvent(&event, pTest->pvContext) == BFE_REPLY_CANCEL)
     {   /* The user asked to stop: acted on at the next safe point. */
-        pTest->bCancelled = TRUE;
+        pTest->bCancelled = true;
     }
 }
 
@@ -229,9 +229,9 @@ static void BFC_FillTag(const BFC_Test *pTest, uint8_t *pbOut, uint64_t ullAt)
 /*     pullAt : receives the address named, when there is one.                */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : TRUE when the block carries this run's tag, FALSE otherwise.     */
+/*     bool : true when the block carries this run's tag, false otherwise.    */
 /*----------------------------------------------------------------------------*/
-static int BFC_TagAddress(const BFC_Test *pTest, const uint8_t *pbData, uint64_t *pullAt)
+static bool BFC_TagAddress(const BFC_Test *pTest, const uint8_t *pbData, uint64_t *pullAt)
 {
     char               szHead[128];
     unsigned long long ullAt;
@@ -245,19 +245,19 @@ static int BFC_TagAddress(const BFC_Test *pTest, const uint8_t *pbData, uint64_t
 
     if (strncmp(szHead, BFC_MAGIC " at=", strlen(BFC_MAGIC " at=")) != 0)
     {   /* Not a test block at all. */
-        return(FALSE);
+        return(false);
     }
 
     if (sscanf(szHead + strlen(BFC_MAGIC " "), "at=%llu nonce=%llu", &ullAt, &ullNonce) != 2 || ullNonce != pTest->ullNonce)
     {   /* Damaged, or another run's. */
-        return(FALSE);
+        return(false);
     }
 
     /* The address the block was written for -- where it really belongs. */
     *pullAt = (uint64_t)ullAt;
 
     /* This run's block, for that address. */
-    return(TRUE);
+    return(true);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -270,14 +270,14 @@ static int BFC_TagAddress(const BFC_Test *pTest, const uint8_t *pbData, uint64_t
 /* Arguments:                                                                 */
 /*     pTest  : the run.                                                      */
 /*     ullAt  : the block's address.                                          */
-/*     pbHeld : receives TRUE when the block read back as written.            */
+/*     pbHeld : receives true when the block read back as written.            */
 /*                                                                            */
 /* Returns:                                                                   */
 /*     int : BFE_OK; BFE_ERR_IO_IMAGE when a read failed; BFE_ERR_IO_HOST     */
 /*           when a write, a flush or the putting back failed (the detail     */
 /*           line says which).                                                */
 /*----------------------------------------------------------------------------*/
-static int BFC_ProbeOne(BFC_Test *pTest, uint64_t ullAt, int *pbHeld)
+static int BFC_ProbeOne(BFC_Test *pTest, uint64_t ullAt, bool *pbHeld)
 {
     uint8_t *pbKeep;
     int      iError;
@@ -291,7 +291,7 @@ static int BFC_ProbeOne(BFC_Test *pTest, uint64_t ullAt, int *pbHeld)
 
     /* "Not held" until the read-back says otherwise, so every early return   */
     /* leaves a defined verdict.                                              */
-    *pbHeld = FALSE;
+    *pbHeld = false;
 
     /* What is at the address now, kept for the put-back. */
     iError = BFV_Read(&pTest->target, ullAt, pbKeep, pTest->uiBlock);
@@ -479,13 +479,13 @@ BFE_API int BFE_TestCapacity(const wchar_t *pwszDevice, BFE_CopyCallback pfnEven
     uint32_t        uiSystem;
     uint32_t        uiFirstBad;
     uint32_t        i;
-    int             bHeld;
+    bool            bHeld;
     int             iStatus;
     int             iError;
 
     /* The gate: the busy flag only -- "no image open" is tested just   */
     /* below with its own message.                                      */
-    iStatus = BFX_Enter(FALSE, FALSE);
+    iStatus = BFX_Enter(false, false);
 
     if (iStatus != BFE_OK)
     {   /* Another call is running: BFX_Enter has said so, and the flag is   */
@@ -687,7 +687,7 @@ BFE_API int BFE_TestCapacity(const wchar_t *pwszDevice, BFE_CopyCallback pfnEven
         /* The block for this address, marked written BEFORE the write so   */
         /* that a write which fails part-way is still put back.             */
         BFC_FillTag(&test, test.pbTag, test.aSamples[i].ullAt);
-        test.aSamples[i].bWritten = TRUE;
+        test.aSamples[i].bWritten = true;
         iError = BFV_Write(&test.target, test.aSamples[i].ullAt, test.pbTag, test.uiBlock);
 
         if (iError != 0)
@@ -734,7 +734,7 @@ BFE_API int BFE_TestCapacity(const wchar_t *pwszDevice, BFE_CopyCallback pfnEven
 
         if (iError == 0 && memcmp(test.pbRead, test.pbTag, test.uiBlock) == 0)
         {   /* Kept exactly. */
-            test.aSamples[i].bHeld = TRUE;
+            test.aSamples[i].bHeld = true;
         }
         else if (iError == 0)
         {   /* Not kept: is another sample's block here instead? */
@@ -786,7 +786,7 @@ BFE_API int BFE_TestCapacity(const wchar_t *pwszDevice, BFE_CopyCallback pfnEven
         {   /* A higher block landed here: the addresses repeat every (high -   */
             /* low) bytes or a divisor of it; the smallest such distance seen   */
             /* is the best estimate of the real size.                           */
-            pResult->bWraps = TRUE;
+            pResult->bWraps = true;
             ullAt = test.aSamples[i].ullFoundAt - test.aSamples[i].ullAt;
 
             if (ullPeriod == 0 || ullAt < ullPeriod)

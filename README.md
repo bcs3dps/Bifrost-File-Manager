@@ -1,19 +1,23 @@
-# BifrostFM 2.4.12
+# BifrostFM 2.5.0
 
 A Windows dual-pane file manager for Linux and FAT filesystems -- ext2,
-ext3 and ext4, and FAT12, FAT16, FAT32 and exFAT -- in **image files** and
-on **real devices** (SD cards, USB sticks, eMMC adapters). The filesystem
-inside the image or on the device is shown in the LEFT pane, the Windows
-filesystem in the RIGHT, and files and whole folders copy between them in
-both directions. Everything is done on the raw bytes, in userspace: no
-Linux host, no Windows ext4 driver, nothing installed. An image file needs
-no Administrator rights; a real device does.
+ext3 and ext4, squashfs (read-only), and FAT12, FAT16, FAT32 and exFAT --
+in **image files** and on **real devices** (SD cards, USB sticks, eMMC
+adapters). The filesystem inside the image or on the device is shown in
+the LEFT pane, the Windows filesystem in the RIGHT, and files and whole
+folders copy between them in both directions. Everything is done on the
+raw bytes, in userspace: no Linux host, no Windows ext4 driver, nothing
+installed. An image file needs no Administrator rights; a real device
+does.
 
 The name is **Bifrost**, the rainbow bridge between two worlds in Norse
 myth: the program is the bridge between a Windows filesystem and a Linux
 one.
 
 **Always keep a backup copy of an image or a card before changing it.**
+
+**New since 2.4.12:** squashfs, read-only (2.4.16), and extracting that
+follows symbolic links (2.5.0) -- both described below.
 
 ## What is in this folder
 
@@ -24,6 +28,7 @@ one.
 | `LICENSE` | The GNU General Public License, version 2 -- BifrostFM's licence. |
 | `SOURCES.md`, `SOURCES.html` | The source tree, file by file: which code is BifrostFM's own and which is open-source code built into the engine, with each one's copyright and licence. |
 | `LWEXT4_UPSTREAM.md`, `LWEXT4_UPSTREAM.html` | For lwext4's maintainers and users: every defect found in the lwext4 library while building BifrostFM, each numbered patch that fixes one (marked "BifrostFM patch N" in `engine\lwext4\`) explained and given as a diff against lwext4's v1.0.0 release, with where upstream's master stands, and the defects verified but not yet fixed. |
+| `SQUASHFUSE_UPSTREAM.md`, `SQUASHFUSE_UPSTREAM.html` | The same for squashfuse 0.6.5, whose reader gives the engine squashfs: the one change made to it (marked "BifrostFM squashfuse patch 1" in `engine\squashfuse\`), as a diff, and what else was found in it. |
 | `build.bat` | Builds everything: the engine, then the program (see "Building it"). |
 | `engine\` | The engine's source: `bifrost_engine.dll`, a C library, and the open-source libraries it builds in. |
 | `gui\` | The program's source: `BifrostFM.exe`, C# WinForms. |
@@ -44,10 +49,18 @@ that command.
 
 ## What it does
 
-- **Opens** an ext2, ext3, ext4, FAT12, FAT16, FAT32 or exFAT filesystem in
-  an image file, in one partition of a whole-disk image (MBR or GPT), or on
-  a device, and browses it: name, size, type, permissions, owner and time
-  for every entry.
+- **Opens** an ext2, ext3, ext4, squashfs, FAT12, FAT16, FAT32 or exFAT
+  filesystem in an image file, in one partition of a whole-disk image (MBR
+  or GPT), or on a device, and browses it: name, size, type, permissions,
+  owner and time for every entry.
+- **Reads squashfs** (version 4.0, compressed with gzip, xz -- its BCJ
+  filters included -- lzma or zstd) READ-ONLY: squashfs is a compressed
+  filesystem written whole, so nothing in it can be changed. It is browsed
+  and copied out like ext4; any change -- a delete, a new folder, a copy or
+  drop into it, an editor's save -- is refused with a box saying the
+  filesystem is read-only (one box for a whole drop of many files, nothing
+  of it copied). A squashfs made with lz4 or lzo is refused, naming the
+  method.
 - **Copies** files and whole trees out of the image and into it -- by menu,
   by clipboard (Ctrl+C / Ctrl+V), or by dragging between the panes or to
   and from Explorer. Copy and paste copies; cut and paste moves, within the
@@ -56,6 +69,14 @@ that command.
   refuses) is skipped, and an optional manifest beside the copy records
   every entry's Unix mode, owner, group, times and links, so a tree copied
   out and back in comes back as it was.
+- **Follows symbolic links** when copying out, with *Options > Extracting
+  follows symbolic links* (off by default): a link is copied as what it
+  points to -- a file, or a folder and everything in it -- under the
+  link's own name, even when that copies the same data more than once.
+  The target is looked for inside the open filesystem, as Linux would find
+  it; a link to something not in it (`/proc`, another partition, a missing
+  file) is skipped, and so is a link that leads back into a folder being
+  copied or a chain of more than 40 links, and the copy says so.
 - **Edits** the image: new folder, rename, delete, and, in the image,
   permissions, owner and group (as octal and as check boxes). An image is
   always opened **read-only**; the first change asks once, with a warning,
@@ -202,9 +223,10 @@ named in its script, so a file missing from the tree stops the build.
 | **.NET Framework 4.x** and its `csc.exe` (C# 5 compiler), at `%windir%\Microsoft.NET\Framework64\v4.0.30319\csc.exe` | Compiling the program (C#) | Part of Windows 10 and 11; nothing to install |
 
 Nothing else is needed: no Visual Studio, no MSBuild, no CMake, no NuGet,
-no make. The engine's libraries (lwext4, FatFs, e2fsprogs, liblzma, zlib
-and zstd) are all in `engine\` and are compiled by its batch file. Another
-64-bit MinGW-w64 gcc may well work, but only the one above was used.
+no make. The engine's libraries (lwext4, FatFs, squashfuse, e2fsprogs,
+liblzma, zlib and zstd) are all in `engine\` and are compiled by its
+batch file. Another 64-bit MinGW-w64 gcc may well work, but only the one
+above was used.
 
 ### The steps
 
@@ -237,10 +259,10 @@ gui\build_gui.bat release same
    single-file program as the one in this folder. Its intermediate files go
    to `gui\obj\`.
 
-**The version.** `gui\version.txt` holds the version, `2.4.12`. With `same`,
-the build carries that number unchanged, so it is the 2.4.12 release
-rebuilt. Without it, every build steps the last number by one (`2.4.13`,
-`2.4.14` ...) and writes the new number back to `gui\version.txt`.
+**The version.** `gui\version.txt` holds the version, `2.5.0`. With `same`,
+the build carries that number unchanged, so it is the 2.5.0 release
+rebuilt. Without it, every build steps the last number by one (`2.5.1`,
+`2.5.2` ...) and writes the new number back to `gui\version.txt`.
 
 **A development build** -- `build.bat` (or `gui\build_gui.bat`) with no
 arguments -- also
@@ -283,6 +305,10 @@ licence, as its files state:
   choice (`LICENSE`, `COPYING`).
 - **FatFs R0.16** (`engine\fatfs\`) -- ChaN; a one-condition BSD-style
   licence (`engine\fatfs\LICENSE.txt`).
+- **squashfuse 0.6.5**'s reader (`engine\squashfuse\`) -- Dave Vasilevsky
+  (its `squashfs_fs.h` Phillip Lougher's, by permission); BSD 2-clause
+  (`engine\squashfuse\LICENSE`). BifrostFM's one change to it is marked
+  `BifrostFM squashfuse patch 1` where it is made.
 
 `SOURCES.md` gives the detail, folder by folder. Upstream's own test data
 and test programs are not included in this source release.

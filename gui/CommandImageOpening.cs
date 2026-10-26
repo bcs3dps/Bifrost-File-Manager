@@ -430,10 +430,11 @@ namespace BifrostFM
             /* read, an empty list and a line that says so.  The no-table       */
             /* line starts as the plain one, which names every filesystem the   */
             /* engine opens -- it is shown only after the whole-file mount      */
-            /* failed, and that mount tries ext2/3/4 and then FAT and exFAT.    */
+            /* failed, and that mount tries ext2/3/4, then squashfs, then FAT   */
+            /* and exFAT.                                                       */
             lstParts = new List<PRT_clsPartition>();
             sFound = PRF_clsPartitionForm.PRF_ReadTableFile(objRequest.RQT_objTarget.TGT_sPath, lstParts);
-            sFallback = "No filesystem this program opens (ext2, ext3, ext4, FAT or exFAT) at the start of the file, and no partition table. Type the offset the filesystem starts at.";
+            sFallback = "No filesystem this program opens (ext2, ext3, ext4, squashfs, FAT or exFAT) at the start of the file, and no partition table. Type the offset the filesystem starts at.";
             if (lstParts.Count == 0)
             {   /* No table.  The first page is read to say what the file   */
                 /* holds when it is not ext -- words for the offset         */
@@ -459,15 +460,15 @@ namespace BifrostFM
                                 /* the user sees what is there.  The sentence     */
                                 /* says only that it would not open, never that   */
                                 /* it is not a kind the program reads: the        */
-                                /* words may name FAT or exFAT, which the         */
-                                /* engine does read, and then the volume itself   */
-                                /* is what the mount refused.  The double         */
+                                /* words may name squashfs, FAT or exFAT, which   */
+                                /* the engine does read, and then the volume      */
+                                /* itself is what the mount refused.  The double  */
                                 /* spaces are closed up as PTB_Read does for a    */
                                 /* whole disk (PartitionTable.cs).  An ext page   */
                                 /* keeps the plain line.                          */
                                 sFallback = "No partition table: the whole file holds " +
                                     sContent.Replace("  ", " ") +
-                                    ", and it would not open as a filesystem this program reads (ext2, ext3, ext4, FAT or exFAT). Type an offset if one starts further in.";
+                                    ", and it would not open as a filesystem this program reads (ext2, ext3, ext4, squashfs, FAT or exFAT). Type an offset if one starts further in.";
                             }
                         }
                     }

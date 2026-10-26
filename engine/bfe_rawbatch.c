@@ -74,14 +74,14 @@ BFE_API int BFE_WriteRawBatch(const wchar_t *pwszPath, const BFE_RawPiece *pPiec
     uint64_t ullEarlierEnd;
     int iStatus;
     int iError;
-    int bWriteAttempted;
+    bool bWriteAttempted;
 
     /* Take the engine's busy flag first, before anything is opened or any     */
     /* error is written: the last-error text belongs to whichever call holds   */
-    /* the flag.  No session is needed (FALSE, FALSE) -- a table is written    */
+    /* the flag.  No session is needed (false, false) -- a table is written    */
     /* with or without an image open, and the identity test below keeps it     */
     /* off the session's own target.                                           */
-    iStatus = BFX_Enter(FALSE, FALSE);
+    iStatus = BFX_Enter(false, false);
     if (iStatus != BFE_OK)
     {   /* Another call is inside the engine.  BFX_Enter returned BUSY without   */
         /* taking the flag or touching that call's error text, so there is       */
@@ -93,13 +93,13 @@ BFE_API int BFE_WriteRawBatch(const wchar_t *pwszPath, const BFE_RawPiece *pPiec
     /* state BEFORE the first refusal can jump there: a closed target, no      */
     /* volume locks, no scratch buffer.  The release then frees exactly what   */
     /* was taken, whichever refusal it is reached from.  The largest piece     */
-    /* and the "a write was tried" mark start at zero and FALSE.               */
+    /* and the "a write was tried" mark start at zero and false.               */
     memset(&stTarget, 0, sizeof(stTarget));
     stTarget.hFile = INVALID_HANDLE_VALUE;
     memset(&stLocks, 0, sizeof(stLocks));
     pbAligned = NULL;
     cbLargest = 0;
-    bWriteAttempted = FALSE;
+    bWriteAttempted = false;
 
     if (pwszPath == NULL || pwszPath[0] == L'\0' || pPieces == NULL ||
         nPieces == 0 || nPieces > BFE_WRITE_BATCH_MAX_PIECES)
@@ -275,7 +275,7 @@ BFE_API int BFE_WriteRawBatch(const wchar_t *pwszPath, const BFE_RawPiece *pPiec
         /* Mark that a write was tried BEFORE making it: a write that fails   */
         /* may still have changed part of its range, so the flush and the     */
         /* re-read request after the loop must run on that path too.          */
-        bWriteAttempted = TRUE;
+        bWriteAttempted = true;
         iError = BFV_Write(&stTarget, pPieces[iPiece].ullOffset, pvWrite, pPieces[iPiece].cbBytes);
         if (iError != 0)
         {   /* The write failed.  Stop at once, leaving the later pieces       */

@@ -28,10 +28,12 @@
 #ifndef BFE_DEVICE_H
 #define BFE_DEVICE_H
 
-/* Fixed-width integers, size_t, wchar_t, and Windows for HANDLE (which   */
-/* BFV_Target and BFV_Locks hold).                                        */
+/* Fixed-width integers, size_t, bool (BFV_Target's flags, BFV_SameObject's   */
+/* answer), wchar_t, and Windows for HANDLE (which BFV_Target and BFV_Locks   */
+/* hold).                                                                     */
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 #include <wchar.h>
 #include <windows.h>
 
@@ -67,9 +69,9 @@ typedef struct BFV_Target
     uint32_t uiSector;                      // bytes per sector: BFV_FILE_SECTOR for a file, the device's real figure for a device
     uint32_t uiDisk;                        // the physical disk number a device sits on; BFV_NO_DISK for a file
     uint32_t uiBus;                         // a device's bus, Windows' STORAGE_BUS_TYPE value (7 USB, 12 SD, 13 MMC, 11 SATA, 17 NVMe ...); 0 for a file
-    int      bDevice;                       // TRUE when the handle is a raw device (sector-aligned, unbuffered I/O required)
-    int      bRemovable;                    // TRUE when Windows calls the device's media removable; FALSE for a file
-    int      bWritable;                     // TRUE when it was opened with write access
+    bool     bDevice;                       // true when the handle is a raw device (sector-aligned, unbuffered I/O required)
+    bool     bRemovable;                    // true when Windows calls the device's media removable; false for a file
+    bool     bWritable;                     // true when it was opened with write access
     char     szModel[BFV_MODEL_BYTES];      // a device's vendor and product, UTF-8, trimmed; "" for a file
 } BFV_Target;
 
@@ -112,12 +114,12 @@ typedef struct BFV_Locks
 /* BFV_Truncate        : cut an open FILE to nothing (a device is left as it  */
 /*                       is) -- the second half of a BFV_ACCESS_OPENKEEP      */
 /*                       open.  Returns 0 or the Windows error.               */
-/* BFV_SameObject      : TRUE when two open targets are the same thing, by    */
+/* BFV_SameObject      : true when two open targets are the same thing, by    */
 /*                       identity, not by path: two files with the same       */
 /*                       volume serial and file index, or two devices on the  */
 /*                       same physical disk.  A file and a device are never   */
 /*                       the same.  When a file's identity cannot be read the */
-/*                       answer is TRUE, so a caller that refuses on TRUE     */
+/*                       answer is true, so a caller that refuses on true     */
 /*                       refuses what it cannot tell apart.                   */
 /* BFV_AllocAligned /  : a page-aligned buffer for device I/O, and its        */
 /* BFV_FreeAligned       release.                                             */
@@ -144,7 +146,7 @@ int   BFV_Read(BFV_Target *pTarget, uint64_t ullOffset, void *pvBuffer, uint32_t
 int   BFV_Write(BFV_Target *pTarget, uint64_t ullOffset, const void *pvBuffer, uint32_t cbBytes);
 int   BFV_Flush(BFV_Target *pTarget);
 int   BFV_Truncate(BFV_Target *pTarget);
-int   BFV_SameObject(const BFV_Target *pFirst, const BFV_Target *pSecond);
+bool  BFV_SameObject(const BFV_Target *pFirst, const BFV_Target *pSecond);
 void *BFV_AllocAligned(size_t cbBytes);
 void  BFV_FreeAligned(void *pvBuffer);
 uint32_t BFV_SystemDisk(void);

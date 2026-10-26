@@ -137,13 +137,13 @@ static BFIO_Channel *BFIO_Check(io_channel channel)
 /*                                                                            */
 /* Arguments:                                                                 */
 /*     iError : the Windows error (never 0).                                  */
-/*     bWrite : TRUE for a write, FALSE for a read -- picks the short code.   */
+/*     bWrite : true for a write, false for a read -- picks the short code.   */
 /*                                                                            */
 /* Returns:                                                                   */
 /*     errcode_t : EXT2_ET_SHORT_READ / EXT2_ET_SHORT_WRITE, EROFS, ENXIO     */
 /*                 (nothing open) or EIO.                                     */
 /*----------------------------------------------------------------------------*/
-static errcode_t BFIO_MapError(int iError, int bWrite)
+static errcode_t BFIO_MapError(int iError, bool bWrite)
 {
     if (iError == ERROR_HANDLE_EOF)
     {   /* The transfer ran off the end.  For a READ that is BFIO_Transfer's   */
@@ -417,13 +417,13 @@ static errcode_t BFIO_SetBlksize(io_channel channel, int iBlksize)
 /*     ullBlock : the first block, from the start of the filesystem.          */
 /*     iCount   : blocks to transfer, or minus a byte count.                  */
 /*     pvData   : the buffer.                                                 */
-/*     bWrite   : TRUE to write from it, FALSE to read into it.               */
+/*     bWrite   : true to write from it, false to read into it.               */
 /*                                                                            */
 /* Returns:                                                                   */
 /*     errcode_t : 0, or the mapped error -- or the error hook's answer.      */
 /*----------------------------------------------------------------------------*/
 static errcode_t BFIO_Transfer(io_channel channel, BFIO_Channel *pPrivate,
-                               unsigned long long ullBlock, int iCount, void *pvData, int bWrite)
+                               unsigned long long ullBlock, int iCount, void *pvData, bool bWrite)
 {
     uint64_t  cbWanted;
     uint64_t  cbInside;
@@ -562,7 +562,7 @@ static errcode_t BFIO_ReadBlk64(io_channel channel, unsigned long long ullBlock,
     }
 
     /* Into the caller's buffer. */
-    return(BFIO_Transfer(channel, pPrivate, ullBlock, iCount, pvData, FALSE));
+    return(BFIO_Transfer(channel, pPrivate, ullBlock, iCount, pvData, false));
 }
 
 /*----------------------------------------------------------------------------*/
@@ -594,7 +594,7 @@ static errcode_t BFIO_WriteBlk64(io_channel channel, unsigned long long ullBlock
 
     /* Out of the caller's buffer, which a write leaves untouched; the cast   */
     /* only fits the shared transfer function's signature.                    */
-    return(BFIO_Transfer(channel, pPrivate, ullBlock, iCount, (void *)pvData, TRUE));
+    return(BFIO_Transfer(channel, pPrivate, ullBlock, iCount, (void *)pvData, true));
 }
 
 /*----------------------------------------------------------------------------*/
@@ -697,7 +697,7 @@ static errcode_t BFIO_WriteByte(io_channel channel, unsigned long ulOffset, int 
         /* only for EXT2_ET_UNIMPLEMENTED (closefs.c), which this never     */
         /* returns -- so any failure here is the superblock write's own     */
         /* failure, passed up as it is.                                     */
-        return(BFIO_MapError(iError, TRUE));
+        return(BFIO_MapError(iError, true));
     }
 
     /* Written. */

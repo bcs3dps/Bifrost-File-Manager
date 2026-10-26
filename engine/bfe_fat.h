@@ -32,9 +32,11 @@
 #ifndef BFE_FAT_H
 #define BFE_FAT_H
 
-/* Fixed-width integers, and the public interface for BFE_Entry,   */
-/* BFE_VolumeInfo, the list callback and the status codes.         */
+/* Fixed-width integers, bool (BFT_PathFoldPrefix's answer), and the   */
+/* public interface for BFE_Entry, BFE_VolumeInfo, the list callback   */
+/* and the status codes.                                               */
 #include <stdint.h>
+#include <stdbool.h>
 #include "bifrost_engine.h"
 
 /*----------------------------------------------------------------------------*/
@@ -106,10 +108,10 @@ uint64_t BFT_MaxFileBytes(void);
 /* BFT_PathFoldPrefix : whether a FAT path begins with another, character     */
 /*                      by character with letter case folded by FatFs's own   */
 /*                      table (ff_wtoupper), as FatFs matches names; on       */
-/*                      TRUE, how many bytes of the first path matched --     */
+/*                      true, how many bytes of the first path matched --     */
 /*                      a NUL there means the same path, a '/' that it lies   */
 /*                      under the other.  Needs no volume mounted.            */
-int BFT_PathFoldPrefix(const char *pszPath, const char *pszPrefix, size_t *pcbMatched);
+bool BFT_PathFoldPrefix(const char *pszPath, const char *pszPrefix, size_t *pcbMatched);
 
 /*-----------------------------------------------------------------------------*/
 /* Making a FAT volume (bfe_mkfs.c's BFE_MakeFs and BFE_MakeFsAt, with no      */

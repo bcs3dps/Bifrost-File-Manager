@@ -32,8 +32,8 @@
 #include <string.h>
 #include <wchar.h>
 
-/* The engine's shared declarations: these functions' prototypes, TRUE /   */
-/* FALSE.                                                                  */
+/* The engine's shared declarations: these functions' prototypes, and   */
+/* bool with its true and false.                                        */
 #include "bfe_internal.h"
 
 /*----------------------------------------------------------------------------*/
@@ -243,14 +243,14 @@ wchar_t *BFU_AppendHost(const wchar_t *pwszPath, const wchar_t *pwszSuffix)
 /*                                                                            */
 /* Arguments:                                                                 */
 /*     pszUtf8    : the NUL-terminated UTF-8 text.                            */
-/*     pbNoMemory : receives TRUE when NULL is returned because memory ran    */
-/*                  out, FALSE otherwise (malformed input, or success).       */
+/*     pbNoMemory : receives true when NULL is returned because memory ran    */
+/*                  out, false otherwise (malformed input, or success).       */
 /*                                                                            */
 /* Returns:                                                                   */
 /*     wchar_t * : the malloc'd UTF-16 text, or NULL on malformed input or    */
 /*                 when out of memory (*pbNoMemory says which).               */
 /*----------------------------------------------------------------------------*/
-wchar_t *BFU_Utf8ToWide(const char *pszUtf8, int *pbNoMemory)
+wchar_t *BFU_Utf8ToWide(const char *pszUtf8, bool *pbNoMemory)
 {
     const unsigned char *pb;
     wchar_t             *pwszOut;
@@ -269,7 +269,7 @@ wchar_t *BFU_Utf8ToWide(const char *pszUtf8, int *pbNoMemory)
 
     /* Not out of memory unless the allocation below fails: every other   */
     /* NULL return is a malformed name.                                   */
-    *pbNoMemory = FALSE;
+    *pbNoMemory = false;
 
     /* A UTF-16 string never has more units than its UTF-8 form has bytes, so   */
     /* the byte count plus the NUL is always enough room.                       */
@@ -277,7 +277,7 @@ wchar_t *BFU_Utf8ToWide(const char *pszUtf8, int *pbNoMemory)
 
     if (pwszOut == NULL)
     {   /* Out of memory: said so, apart from a malformed name. */
-        *pbNoMemory = TRUE;
+        *pbNoMemory = true;
         return(NULL);
     }
 
@@ -391,14 +391,14 @@ wchar_t *BFU_Utf8ToWide(const char *pszUtf8, int *pbNoMemory)
 /*                                                                            */
 /* Arguments:                                                                 */
 /*     pwszWide   : the NUL-terminated UTF-16 text.                           */
-/*     pbNoMemory : receives TRUE when NULL is returned because memory ran    */
-/*                  out, FALSE otherwise (an unpaired surrogate, or success). */
+/*     pbNoMemory : receives true when NULL is returned because memory ran    */
+/*                  out, false otherwise (an unpaired surrogate, or success). */
 /*                                                                            */
 /* Returns:                                                                   */
 /*     char * : the malloc'd UTF-8 text, or NULL on an unpaired surrogate or  */
 /*              when out of memory (*pbNoMemory says which).                  */
 /*----------------------------------------------------------------------------*/
-char *BFU_WideToUtf8(const wchar_t *pwszWide, int *pbNoMemory)
+char *BFU_WideToUtf8(const wchar_t *pwszWide, bool *pbNoMemory)
 {
     unsigned char *pbOut;
     size_t         cchIn;
@@ -412,7 +412,7 @@ char *BFU_WideToUtf8(const wchar_t *pwszWide, int *pbNoMemory)
 
     /* Not out of memory unless the allocation below fails: every other   */
     /* NULL return is an unpaired surrogate.                              */
-    *pbNoMemory = FALSE;
+    *pbNoMemory = false;
 
     /* One UTF-16 unit becomes at most three UTF-8 bytes (a surrogate PAIR is   */
     /* two units and four bytes, which is fewer per unit), so 3 per unit plus   */
@@ -421,7 +421,7 @@ char *BFU_WideToUtf8(const wchar_t *pwszWide, int *pbNoMemory)
 
     if (pbOut == NULL)
     {   /* Out of memory: said so, apart from an unpaired surrogate. */
-        *pbNoMemory = TRUE;
+        *pbNoMemory = true;
         return(NULL);
     }
 
@@ -540,9 +540,9 @@ char *BFU_WideToUtf8(const wchar_t *pwszWide, int *pbNoMemory)
 /*     pszName : the entry name, UTF-8.                                       */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : TRUE when Windows can hold the name as it is, FALSE otherwise.   */
+/*     bool : true when Windows can hold the name as it is, false otherwise.  */
 /*----------------------------------------------------------------------------*/
-int BFU_HostNameValid(const char *pszName)
+bool BFU_HostNameValid(const char *pszName)
 {
     static const char *apszReserved[] = {   // device names Windows reserves in every folder, upper case (the base is folded to match)
         "CON", "PRN", "AUX", "NUL",
@@ -560,7 +560,7 @@ int BFU_HostNameValid(const char *pszName)
 
     if (cbName == 0)
     {   /* An empty name names nothing. */
-        return(FALSE);
+        return(false);
     }
 
     /* Characters Windows never allows in a file name, tested on the UTF-8    */
@@ -573,20 +573,20 @@ int BFU_HostNameValid(const char *pszName)
 
         if ((unsigned char)ch < 0x20)
         {   /* A control character. */
-            return(FALSE);
+            return(false);
         }
 
         if (ch == '<' || ch == '>' || ch == ':' || ch == '"' || ch == '/' ||
             ch == '\\' || ch == '|' || ch == '?' || ch == '*')
         {   /* A character with a meaning of its own in a Windows path. */
-            return(FALSE);
+            return(false);
         }
     }
 
     if (pszName[cbName - 1] == '.' || pszName[cbName - 1] == ' ')
     {   /* Windows strips a trailing dot or space, landing on another name.   */
         /* This also refuses "." and "..", which are never real children.     */
-        return(FALSE);
+        return(false);
     }
 
     /* The reserved-name test looks at the part before the FIRST dot only:       */
@@ -623,7 +623,7 @@ int BFU_HostNameValid(const char *pszName)
         {   /* One reserved name per iteration. */
             if (strcmp(szBase, apszReserved[i]) == 0)
             {   /* The base is a device name. */
-                return(FALSE);
+                return(false);
             }
         }
     }
@@ -654,12 +654,12 @@ int BFU_HostNameValid(const char *pszName)
 
         if (strcmp(szBase, "COM") == 0 || strcmp(szBase, "LPT") == 0)
         {   /* COM or LPT with a superscript digit: a device name. */
-            return(FALSE);
+            return(false);
         }
     }
 
     /* Nothing Windows objects to. */
-    return(TRUE);
+    return(true);
 }
 
 /*----------------------------------------------------------------------------*/

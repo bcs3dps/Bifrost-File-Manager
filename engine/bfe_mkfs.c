@@ -134,7 +134,7 @@ static struct ext4_fs BFK_fs;    // scratch state for ext4_mkfs; meaningless bet
 /* Arguments:                                                                 */
 /*     pwszImage  : the image file's path.                                    */
 /*     ullBytes   : the size to give it.                                      */
-/*     bOverwrite : TRUE to replace a file that is already there.             */
+/*     bOverwrite : true to replace a file that is already there.             */
 /*     puiError   : receives the Win32 error code on BFK_CREATE_FAILED.       */
 /*                                                                            */
 /* Returns:                                                                   */
@@ -142,7 +142,7 @@ static struct ext4_fs BFK_fs;    // scratch state for ext4_mkfs; meaningless bet
 /*           anything but OK no file is left behind that was not there        */
 /*           before.                                                          */
 /*----------------------------------------------------------------------------*/
-static int BFK_CreateSized(const wchar_t *pwszImage, uint64_t ullBytes, int bOverwrite, uint32_t *puiError)
+static int BFK_CreateSized(const wchar_t *pwszImage, uint64_t ullBytes, bool bOverwrite, uint32_t *puiError)
 {
     HANDLE        hFile;
     LARGE_INTEGER liSize;
@@ -189,6 +189,8 @@ static int BFK_CreateSized(const wchar_t *pwszImage, uint64_t ullBytes, int bOve
     /* file system hands back zeros for every byte never stored.              */
     liSize.QuadPart = (LONGLONG)ullBytes;
 
+    /* The Windows BOOL each call below answers is tested in its own   */
+    /* form, on purpose -- not as the engine's bool.                   */
     if (!SetFilePointerEx(hFile, liSize, NULL, FILE_BEGIN) || !SetEndOfFile(hFile))
     {   /* Not enough room on the disk, or a size the file system cannot hold. */
 
@@ -245,7 +247,7 @@ static uint32_t BFK_RandomWord(void)
 /*----------------------------------------------------------------------------*/
 /* BFK_RepairGroups:                                                          */
 /*                                                                            */
-/* Give every block group its TRUE free-block count and the superblock their  */
+/* Give every block group its true free-block count and the superblock their  */
 /* sum, with every group descriptor's checksum recomputed over the new UUID.  */
 /*                                                                            */
 /* Arguments:                                                                 */
@@ -730,17 +732,17 @@ static int BFK_Repair(struct ext4_blockdev *pDevice)
 /*     uiFsType : the type asked for.                                         */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : TRUE for ext2, ext3 or ext4; FALSE otherwise.                    */
+/*     bool : true for ext2, ext3 or ext4; false otherwise.                   */
 /*----------------------------------------------------------------------------*/
-static int BFK_IsExtType(uint32_t uiFsType)
+static bool BFK_IsExtType(uint32_t uiFsType)
 {
     if (uiFsType == BFE_FSTYPE_EXT2 || uiFsType == BFE_FSTYPE_EXT3 || uiFsType == BFE_FSTYPE_EXT4)
     {   /* One of the three. */
-        return(TRUE);
+        return(true);
     }
 
     /* Not an ext type. */
-    return(FALSE);
+    return(false);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -753,17 +755,17 @@ static int BFK_IsExtType(uint32_t uiFsType)
 /*     uiFsType : the type asked for.                                         */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : TRUE for FAT16 (or FAT12), FAT32 or exFAT; FALSE otherwise.      */
+/*     bool : true for FAT16 (or FAT12), FAT32 or exFAT; false otherwise.     */
 /*----------------------------------------------------------------------------*/
-static int BFK_IsFatType(uint32_t uiFsType)
+static bool BFK_IsFatType(uint32_t uiFsType)
 {
     if (uiFsType == BFE_FSTYPE_FAT16 || uiFsType == BFE_FSTYPE_FAT32 || uiFsType == BFE_FSTYPE_EXFAT)
     {   /* One of the three. */
-        return(TRUE);
+        return(true);
     }
 
     /* Not a FAT type. */
-    return(FALSE);
+    return(false);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -949,7 +951,7 @@ BFE_API int BFE_MakeFs(const wchar_t *pwszImage, const BFE_MakeFsOptions *pOptio
 
     /* The gate: the busy flag only -- "no image open" is tested just   */
     /* below with its own message.                                      */
-    iStatus = BFX_Enter(FALSE, FALSE);
+    iStatus = BFX_Enter(false, false);
 
     if (iStatus != BFE_OK)
     {   /* Another call is running: BFX_Enter has said so, and the flag is   */
@@ -1008,7 +1010,7 @@ BFE_API int BFE_MakeFs(const wchar_t *pwszImage, const BFE_MakeFsOptions *pOptio
 
     /* STEP 3: point the block device at the whole file, read-write, and   */
     /* format.  Both formatters open and close the device themselves.      */
-    if (BFD_Configure(pwszImage, 0, 0, FALSE) != 0)
+    if (BFD_Configure(pwszImage, 0, 0, false) != 0)
     {   /* The path could not be copied (ENOMEM).  BFD_Configure's other   */
         /* failure, an offset or length off the 512-byte grid (EINVAL),    */
         /* cannot arise with 0 and 0, so out of memory is the reason.      */
@@ -1301,7 +1303,7 @@ BFE_API int BFE_MakeFsAt(const wchar_t *pwszPath, uint64_t ullOffset, uint64_t u
 
     /* The gate: the busy flag only -- "no image open" is tested just   */
     /* below with its own message.                                      */
-    iStatus = BFX_Enter(FALSE, FALSE);
+    iStatus = BFX_Enter(false, false);
 
     if (iStatus != BFE_OK)
     {   /* Another call is running: BFX_Enter has said so, and the flag is   */
@@ -1505,7 +1507,7 @@ BFE_API int BFE_MakeFsAt(const wchar_t *pwszPath, uint64_t ullOffset, uint64_t u
     /* inside this range (bfe_blockdev.c's BFD_InRange) -- lwext4 through its   */
     /* hooks, FatFs through bfe_fatio.c's disk_* functions -- so nothing they   */
     /* do can stray outside it.                                                 */
-    if (BFD_Configure(pwszPath, ullOffset, ullLength, FALSE) != 0)
+    if (BFD_Configure(pwszPath, ullOffset, ullLength, false) != 0)
     {   /* The path could not be copied (ENOMEM).  The range was checked     */
         /* above, so BFD_Configure's other failure, off the 512-byte grid    */
         /* (EINVAL), cannot arise here: every sector size is a multiple of   */
@@ -1520,7 +1522,7 @@ BFE_API int BFE_MakeFsAt(const wchar_t *pwszPath, uint64_t ullOffset, uint64_t u
     /* above, BFK_ZeroRange, was not: it writes past the block device).     */
     /* (A file is not read back: BFD_SetVerify applies to a device only.)   */
     /* The setting lasts until the next BFD_Configure, which resets it.     */
-    BFD_SetVerify(TRUE);
+    BFD_SetVerify(true);
 
     if (BFK_IsFatType(pOptions->uiFsType))
     {   /* A FAT type: FatFs's formatter lays the volume over the range in     */

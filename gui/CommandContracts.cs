@@ -212,6 +212,7 @@ namespace BifrostFM
         ErasePartition = 28,              // write zeros over this partition: Yes / No, No the default
         ReplaceChecksum = 29,             // a device write's sum: replace the <image>.sha256 already beside the image? Yes / No, No (keep it) the default
         PartitionFile = 31,               // the Windows file a partition is saved to (Read) or written from (Write), asked through the partition window; the answer's text is the path
+        ReadOnlyFilesystem = 43,          // NOT a question: a notice with OK alone, that the open filesystem is one nothing can change (squashfs) and the change asked for is refused; the answer is ignored
         PartitionImageFile = 42,          // File > Partition/Format > Image File's disk image, asked through the main window with Windows' open dialog before anything open is closed; the context is the folder to start in (a string), the answer carries the chosen full path (ANS_sText)
         MakeFsOptions = 30,               // the options of a filesystem about to be made (type, block size, label, zero-fill; a whole disk's size), asked through the partition window; the answer carries them (ANS_objValue, an MFC_clsMakeFsChoice)
         DeviceWriteFile = 41,             // Write Image File to Device's image file, asked through the main window with Windows' open dialog (images plain or compressed); the context is the folder to start in (a string), the answer carries the chosen full path (ANS_sText); the device is then asked as a DeviceChoice

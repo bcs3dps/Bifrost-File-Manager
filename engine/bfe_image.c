@@ -66,14 +66,14 @@ typedef struct BFI_Copy
     uint8_t         *pbRead;                // the aligned chunk buffer for the source
     uint8_t         *pbBack;                // a second aligned chunk buffer, for the read-back of the verify pass
     const wchar_t   *pwszTo;                // the destination path (for the events, and for deleting a failed file)
-    int              bDeleteFile;           // TRUE when the destination is a file this copy created and has not finished
+    bool             bDeleteFile;           // true when the destination is a file this copy created and has not finished
     BFE_CopyCallback pfnEvent;              // the caller's callback, or NULL
     void            *pvContext;             // the caller's context for it
     BFZ_Reader      *pReader;               // the source's decompressor, when BFE_RAW_DECOMPRESS found a compressed file; NULL when the source is read as it is
     BFZ_Reader      *pBack;                 // the verify pass's decompressor of an .xz destination; NULL otherwise
     BFZ_Writer      *pWriter;               // the destination's .xz compressor, with BFE_RAW_XZ_OUT; NULL otherwise
-    int              bXzOut;                // TRUE when the destination is written as .xz (and read back through pBack)
-    int              bSizeKnown;            // FALSE when a compressed source's size cannot be told until it ends
+    bool             bXzOut;                // true when the destination is written as .xz (and read back through pBack)
+    bool             bSizeKnown;            // false when a compressed source's size cannot be told until it ends
 } BFI_Copy;
 
 /*----------------------------------------------------------------------------*/
@@ -280,7 +280,7 @@ BFE_API int BFE_DeviceInfoGet(const wchar_t *pwszPath, BFE_DeviceInfo *pInfo)
 
     /* The gate: the busy flag only -- facts may be asked for with or   */
     /* without an image open, and nothing is written.                   */
-    iStatus = BFX_Enter(FALSE, FALSE);
+    iStatus = BFX_Enter(false, false);
 
     if (iStatus != BFE_OK)
     {   /* Another call is running: BFX_Enter has said so, and the flag is   */
@@ -376,7 +376,7 @@ BFE_API int BFE_ReadRaw(const wchar_t *pwszPath, uint64_t ullOffset, void *pvBuf
 
     /* The gate: the busy flag only -- a read may be made with or without   */
     /* an image open, and changes nothing.                                  */
-    iStatus = BFX_Enter(FALSE, FALSE);
+    iStatus = BFX_Enter(false, false);
 
     if (iStatus != BFE_OK)
     {   /* Another call is running: BFX_Enter has said so, and the flag is   */
@@ -555,7 +555,7 @@ BFE_API int BFE_WriteRaw(const wchar_t *pwszPath, uint64_t ullOffset, const void
     /* The gate: the busy flag only -- the target is a path, not the open     */
     /* session, so an image may be open or not.  When one is, the session's   */
     /* own file or disk is refused below, by identity.                        */
-    iStatus = BFX_Enter(FALSE, FALSE);
+    iStatus = BFX_Enter(false, false);
 
     if (iStatus != BFE_OK)
     {   /* Another call is running: BFX_Enter has said so, and the flag is   */
@@ -1158,17 +1158,17 @@ BFE_API int BFE_CopyRaw(const wchar_t *pwszFrom, uint64_t ullFromOffset,
     uint64_t cbWrite;
     uint32_t cbGot;
     uint32_t uiSystem;
-    int      bToEnd;
-    int      bEnded;
-    int      bInPlace;
-    int      bZero;
+    bool     bToEnd;
+    bool     bEnded;
+    bool     bInPlace;
+    bool     bZero;
     int      iStatus;
     int      iError;
 
     /* The gate: the busy flag only -- both ends are paths, not the open      */
     /* session, so an image may be open or not.  When one is, a destination   */
     /* that is the session's own file or disk is refused (STEP 2).            */
-    iStatus = BFX_Enter(FALSE, FALSE);
+    iStatus = BFX_Enter(false, false);
 
     if (iStatus != BFE_OK)
     {   /* Another call is running: BFX_Enter has said so.  Returned        */
@@ -1187,9 +1187,9 @@ BFE_API int BFE_CopyRaw(const wchar_t *pwszFrom, uint64_t ullFromOffset,
     copy.pwszTo       = pwszTo;
     copy.pfnEvent     = pfnEvent;
     copy.pvContext    = pvContext;
-    copy.bSizeKnown   = TRUE;
+    copy.bSizeKnown   = true;
     copy.bXzOut       = ((uiFlags & BFE_RAW_XZ_OUT) != 0);
-    bToEnd            = FALSE;
+    bToEnd            = false;
 
     /* The two partition modes.  Zeros are always written in place: there is   */
     /* no source to make a new file FROM, and an erase exists to clear part    */
@@ -1285,7 +1285,7 @@ BFE_API int BFE_CopyRaw(const wchar_t *pwszFrom, uint64_t ullFromOffset,
                 /* image's end, with the device's room checked chunk by       */
                 /* chunk and the progress events counting the compressed      */
                 /* file -- each said below.                                   */
-                copy.bSizeKnown = FALSE;
+                copy.bSizeKnown = false;
             }
         }
     }
@@ -1315,7 +1315,7 @@ BFE_API int BFE_CopyRaw(const wchar_t *pwszFrom, uint64_t ullFromOffset,
     }
     else if (ullLength == 0)
     {   /* Size unknown, and "to the end": the copy runs until the image stops. */
-        bToEnd = TRUE;
+        bToEnd = true;
     }
 
     if (copy.source.bDevice)
@@ -1487,7 +1487,7 @@ BFE_API int BFE_CopyRaw(const wchar_t *pwszFrom, uint64_t ullFromOffset,
         /* Set only now, after the open succeeded -- from here on any      */
         /* failure, cancel or failed verify deletes it (BFI_Finish), and   */
         /* only a fully verified success (STEP 6) clears the flag.         */
-        copy.bDeleteFile = TRUE;
+        copy.bDeleteFile = true;
 
         if (copy.bXzOut)
         {   /* Written through the .xz encoder, from the file's start.           */
@@ -1555,7 +1555,7 @@ BFE_API int BFE_CopyRaw(const wchar_t *pwszFrom, uint64_t ullFromOffset,
 
     /* Nothing copied, and the image not yet found to have ended. */
     ullDone = 0;
-    bEnded  = FALSE;
+    bEnded  = false;
 
     /* To the length, or -- size unknown -- until the image itself ends. */
     while (!bEnded && (bToEnd || ullDone < ullLength))
@@ -1603,7 +1603,7 @@ BFE_API int BFE_CopyRaw(const wchar_t *pwszFrom, uint64_t ullFromOffset,
 
             /* Running to the end: this is the last pass, carrying only what   */
             /* came.                                                           */
-            bEnded  = TRUE;
+            bEnded  = true;
             cbPiece = cbGot;
 
             if (cbPiece == 0)
@@ -1748,7 +1748,7 @@ BFE_API int BFE_CopyRaw(const wchar_t *pwszFrom, uint64_t ullFromOffset,
     /* partition table re-read by Windows (BFV_RefreshDisk does nothing for a    */
     /* file).  Done while the volumes are still locked; BFI_Finish then closes   */
     /* the device before releasing them.                                         */
-    copy.bDeleteFile = FALSE;
+    copy.bDeleteFile = false;
     BFV_RefreshDisk(&copy.dest);
 
     /* Everything was copied (and verified, if asked). */
@@ -1799,7 +1799,7 @@ BFE_API int BFE_ImageInfoGet(const wchar_t *pwszPath, BFE_ImageInfo *pInfo)
 
     /* The gate: the busy flag only -- an image may be open or not, and   */
     /* nothing is written.                                                */
-    iStatus = BFX_Enter(FALSE, FALSE);
+    iStatus = BFX_Enter(false, false);
 
     if (iStatus != BFE_OK)
     {   /* Another call is running: BFX_Enter has said so, and the flag is   */

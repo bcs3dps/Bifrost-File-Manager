@@ -20,9 +20,11 @@
 #ifndef BFE_BLOCKDEV_H
 #define BFE_BLOCKDEV_H
 
-/* Fixed-width integers and size_t (wchar_t comes with stddef.h too). */
+/* Fixed-width integers, size_t (wchar_t comes with stddef.h too), and   */
+/* bool for the flag arguments and answers below.                        */
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 
 /* lwext4's block device, named but not defined: BFD_Get hands out a   */
 /* pointer to one, and a file that only passes it on to ext4_device_   */
@@ -42,7 +44,7 @@ struct ext4_blockdev;
 /* BFD_Get       : the one static lwext4 block device, for                    */
 /*                 ext4_device_register.                                      */
 /*----------------------------------------------------------------------------*/
-int BFD_Configure(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t ullLength, int bReadOnly);
+int BFD_Configure(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t ullLength, bool bReadOnly);
 struct ext4_blockdev *BFD_Get(void);
 
 /*------------------------------------------------------------------------------*/
@@ -75,13 +77,13 @@ struct ext4_blockdev *BFD_Get(void);
 /* BFD_TargetFlush  : make the writes real (FlushFileBuffers).  Returns 0 or    */
 /*                    the Windows error.                                        */
 /* BFD_TargetClose  : flush, close and release the bounce; safe when closed.    */
-/* BFD_TargetIsOpen : TRUE between a successful open and the close.             */
+/* BFD_TargetIsOpen : true between a successful open and the close.             */
 /* BFD_TargetOffset : the configured byte offset of the filesystem.             */
 /* BFD_TargetIsDevice / BFD_TargetReadOnly : the open target's kind and mode.   */
-/* BFD_TargetIsObject : TRUE when another open target (bfe_device.h's           */
+/* BFD_TargetIsObject : true when another open target (bfe_device.h's           */
 /*                    BFV_Target, named here by its structure tag) is the       */
 /*                    session's own file or disk, by identity -- what the raw   */
-/*                    calls refuse to write.  FALSE when no target is open.     */
+/*                    calls refuse to write.  false when no target is open.     */
 /*------------------------------------------------------------------------------*/
 /* The raw target is declared by its structure tag only, so this header need    */
 /* not include bfe_device.h (and windows.h with it) for the one prototype       */
@@ -93,11 +95,11 @@ int      BFD_TargetRead(uint64_t ullOffset, void *pvBuf, uint64_t cbBytes);
 int      BFD_TargetWrite(uint64_t ullOffset, const void *pvBuf, uint64_t cbBytes);
 int      BFD_TargetFlush(void);
 void     BFD_TargetClose(void);
-int      BFD_TargetIsOpen(void);
+bool     BFD_TargetIsOpen(void);
 uint64_t BFD_TargetOffset(void);
-int      BFD_TargetIsDevice(void);
-int      BFD_TargetReadOnly(void);
-int      BFD_TargetIsObject(const struct BFV_Target *pOther);
+bool     BFD_TargetIsDevice(void);
+bool     BFD_TargetReadOnly(void);
+bool     BFD_TargetIsObject(const struct BFV_Target *pOther);
 
 /*----------------------------------------------------------------------------*/
 /* BFD_LastIoText : one line about the last device-level failure -- the       */
@@ -113,7 +115,7 @@ const char *BFD_LastIoText(void);
 void        BFD_ClearIoText(void);
 
 /*----------------------------------------------------------------------------*/
-/* BFD_WriteNotKept : TRUE when a device write of the current operation read  */
+/* BFD_WriteNotKept : true when a device write of the current operation read  */
 /*                    back different from what was written (a counterfeit or  */
 /*                    failing card), with the byte offset where the first     */
 /*                    differing read-back piece (up to 1 MiB) starts in       */
@@ -121,7 +123,7 @@ void        BFD_ClearIoText(void);
 /*                    BFD_Configure, so an operation whose library carried on */
 /*                    past the write error still fails at its end.            */
 /*----------------------------------------------------------------------------*/
-int BFD_WriteNotKept(uint64_t *pullAt);
+bool BFD_WriteNotKept(uint64_t *pullAt);
 
 /*----------------------------------------------------------------------------*/
 /* BFD_Generation : how many configurations BFD_Configure has recorded -- a   */
@@ -141,7 +143,7 @@ uint32_t BFD_Generation(void);
 /*                 A format, a resize and a repair turn it on; a session      */
 /*                 when its caller asked.                                     */
 /*----------------------------------------------------------------------------*/
-void BFD_SetVerify(int bOn);
+void BFD_SetVerify(bool bOn);
 
 /* The end of the include guard. */
 #endif // BFE_BLOCKDEV_H

@@ -86,7 +86,7 @@ namespace BifrostFM
         public uint   VLI_uiDirIndex;         // 1 when dir_index is on
         public uint   VLI_uiReadOnly;         // 1 when the session is read-only
         public uint   VLI_uiExternalJournal;  // 1 when the journal is on another device (such a filesystem opens read-only only)
-        public uint   VLI_uiVolumeType;       // ENG_VOLTYPE_*: ext2/3/4 (the feature words say which), FAT12, FAT16, FAT32 or exFAT
+        public uint   VLI_uiVolumeType;       // ENG_VOLTYPE_*: ext2/3/4 (the feature words say which), FAT12, FAT16, FAT32, exFAT or squashfs
         public uint   VLI_uiReserved;         // always 0 (BFE_VolumeInfo's uiReserved)
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 40)]
         public byte[] VLI_abVolumeName;        // the volume label, NUL-terminated (ENG_LABEL_FIELD bytes)
@@ -118,6 +118,8 @@ namespace BifrostFM
     {
         public uint EXO_uiWriteManifest;     // 1: write the metadata manifest beside the data
         public uint EXO_uiSetTimes;          // 1: stamp each extracted file from its inode
+        public uint EXO_uiFollowLinks;       // 1: copy what each symbolic link points to, under the link's name, instead of skipping the link (API 20)
+        public uint EXO_uiReserved;          // always 0; the engine's 16-byte layout, field for field
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -782,7 +784,7 @@ namespace BifrostFM
     {
         /* The engine's file name and the interface version this build mirrors. */
         internal const string ENG_DLL_NAME    = "bifrost_engine.dll";  // looked for beside the exe
-        internal const int    ENG_API_VERSION = 18;                    // the engine interface version these mirrors match (BFE_API_VERSION); ENG_Load refuses a DLL of any other. 13 added BFE_WriteRawBatch and its 24-byte piece, 14 BFE_CopyRaw's in-place and zero-source flags, 15 FAT and exFAT (the FAT make types, the volume type, the entry's attributes), 16 the entry's 768-byte name (a FAT long name whole), 17 BFE_RemoveTree's progress callback and cancel, 18 the 40-byte label field (every label any type holds)
+        internal const int    ENG_API_VERSION = 20;                    // the engine interface version these mirrors match (BFE_API_VERSION); ENG_Load refuses a DLL of any other. 13 added BFE_WriteRawBatch and its 24-byte piece, 14 BFE_CopyRaw's in-place and zero-source flags, 15 FAT and exFAT (the FAT make types, the volume type, the entry's attributes), 16 the entry's 768-byte name (a FAT long name whole), 17 BFE_RemoveTree's progress callback and cancel, 18 the 40-byte label field (every label any type holds), 19 squashfs (opened read-only only; its volume type), 20 extracting through symbolic links (the extract options' follow field, 16 bytes; ENG_ERR_LINK_LOOP)
 
         /* The filesystem check (BFE_CHECK_*): the one flag, the two event kinds   */
         /* and the result's exit bits, which are e2fsck's own.                     */
@@ -841,6 +843,7 @@ namespace BifrostFM
         internal const uint  ENG_VOLTYPE_FAT16     = 16;        // FAT16
         internal const uint  ENG_VOLTYPE_FAT32     = 32;        // FAT32
         internal const uint  ENG_VOLTYPE_EXFAT     = 64;        // exFAT
+        internal const uint  ENG_VOLTYPE_SQUASHFS  = 128;       // squashfs; always read-only (a writable open is refused)
         internal const uint  ENG_ATTR_READONLY     = 0x01;      // read-only (the mode is shown without its write bits)
         internal const uint  ENG_ATTR_HIDDEN       = 0x02;      // hidden
         internal const uint  ENG_ATTR_SYSTEM       = 0x04;      // a system file
@@ -859,10 +862,10 @@ namespace BifrostFM
         internal const int ENG_ERR_BUSY         = 4;     // another engine call is running
         internal const int ENG_ERR_NO_MEMORY    = 5;     // an allocation failed
         internal const int ENG_ERR_IMAGE_OPEN   = 6;     // the file or device path could not be opened (the detail line has the Windows error)
-        internal const int ENG_ERR_MOUNT        = 7;     // not an ext2/3/4 filesystem, nor a FAT or exFAT one
+        internal const int ENG_ERR_MOUNT        = 7;     // not an ext2/3/4 filesystem, nor a squashfs, FAT or exFAT one -- or a squashfs whose superblock or tables are damaged
         internal const int ENG_ERR_JOURNAL      = 8;     // the journal could not be recovered or started -- or a flush lost it, and the session refuses every change after
         internal const int ENG_ERR_INTERNAL     = -100;  // NOT an engine status: one of EngineSession.cs's operations threw (it records this in the operation's result); kept apart from the engine's codes (0 and up) and from the command system's own (CommandSystem.cs, -1 to -3), so a status names one cause
-        internal const int ENG_ERR_READ_ONLY    = 9;     // a modifying call on a read-only session
+        internal const int ENG_ERR_READ_ONLY    = 9;     // a modifying call on a read-only session (every squashfs session is one), or a writable open of what can only be read
         internal const int ENG_ERR_NOT_FOUND    = 10;    // the path does not exist
         internal const int ENG_ERR_EXISTS       = 11;    // the destination name is taken
         internal const int ENG_ERR_NOT_DIR      = 12;    // a directory was required
@@ -881,7 +884,8 @@ namespace BifrostFM
         internal const int ENG_ERR_VOLUME_LOCK  = 25;    // a volume on the target disk could not be locked
         internal const int ENG_ERR_VERIFY       = 26;    // the data read back differs from what was written
         internal const int ENG_ERR_NEEDS_CHECK  = 27;    // BFE_ResizeFs: check (and repair) the filesystem first
-        internal const int ENG_ERR_UNSUPPORTED  = 28;    // something this build does not handle: on a FAT or exFAT session a mode, owner or link call; a filesystem or size BFE_ResizeFs will not resize; or a compressed image's zip method / xz filter
+        internal const int ENG_ERR_UNSUPPORTED  = 28;    // something this build does not handle: on a FAT or exFAT session a mode, owner or link call; a squashfs of a version other than 4.0 or a compression this build does not read (lz4, lzo); a filesystem or size BFE_ResizeFs will not resize; or a compressed image's zip method / xz filter
+        internal const int ENG_ERR_LINK_LOOP    = 29;    // extracting with links followed: a link leading back into a folder being copied, or too long a chain of links -- the link is skipped
 
         /* Entry types (BFE_TYPE_*). */
         internal const uint ENG_TYPE_UNKNOWN  = 0;       // could not be determined
@@ -1681,7 +1685,7 @@ namespace BifrostFM
                 case ENG_ERR_BUSY:         return("The engine is busy with another operation.");
                 case ENG_ERR_NO_MEMORY:    return("Out of memory.");
                 case ENG_ERR_IMAGE_OPEN:   return("The image file or device could not be opened.");
-                case ENG_ERR_MOUNT:        return("This does not look like an ext2, ext3, ext4, FAT or exFAT filesystem.");
+                case ENG_ERR_MOUNT:        return("This does not look like an ext2, ext3, ext4, squashfs, FAT or exFAT filesystem, or it is damaged.");
                 case ENG_ERR_JOURNAL:      return("The filesystem's journal could not be recovered, started or kept running.");
                 case ENG_ERR_READ_ONLY:    return("The image is open read-only.");
                 case ENG_ERR_NOT_FOUND:    return("The item does not exist.");
@@ -1704,6 +1708,7 @@ namespace BifrostFM
                                                   "The card is failing, or holds less than it claims (a counterfeit). Test Capacity in the partition window will tell which.");
                 case ENG_ERR_NEEDS_CHECK:  return("The filesystem must be checked (and repaired if need be) before it is resized.");
                 case ENG_ERR_UNSUPPORTED:  return("That is not supported here: FAT has no permissions, owners or links, and some filesystems, sizes and compressed formats are beyond this program.");
+                case ENG_ERR_LINK_LOOP:    return("The symbolic link leads back into a folder being copied (a loop), or through too many other links; it was skipped.");
                 case ENG_ERR_INTERNAL:     return("The operation stopped on an internal error in the program.");
                 case SYS_clsSystem.SYS_REFUSED:  return("The request was refused.");
                 case SYS_clsSystem.SYS_INTERNAL: return("The request stopped on an internal error in the program.");

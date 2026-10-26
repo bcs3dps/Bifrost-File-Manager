@@ -19,7 +19,11 @@
 /*   - On EXTRACT, a symlink, device, fifo or socket is SKIPPED, and so is an */
 /*     entry whose name Windows cannot hold.  With the manifest option every  */
 /*     entry -- skipped ones included -- has its Unix facts written as text   */
-/*     beside the data, so nothing about the tree is lost.                    */
+/*     beside the data, so nothing about the tree is lost.  With the          */
+/*     follow-links option a symlink is copied as what it names instead,      */
+/*     resolved inside the open filesystem (Bfc_ResolveLink), and recorded    */
+/*     as that file or folder; a link leading nowhere in it, or back into a   */
+/*     folder being copied (Bfc_InsideWalk), is skipped as before.            */
 /*   - On IMPORT, an item gets its mode, owner and times from the manifest    */
 /*     when one is present and wanted, and otherwise the caller's defaults    */
 /*     (0644 files, 0755 directories, root, the host file's modify time);     */
@@ -105,12 +109,25 @@ struct BFM_Record
     uint32_t  uiMtime;      // modify time, epoch seconds, when bHasMtime
     uint32_t  uiAtime;      // access time, epoch seconds, when bHasAtime
     uint64_t  ullSize;      // the entry's size in bytes when it was extracted, when bHasSize
-    int       bHasMode;     // TRUE when the block had a mode: line
-    int       bHasUid;      // TRUE when the block had a uid: line
-    int       bHasGid;      // TRUE when the block had a gid: line
-    int       bHasMtime;    // TRUE when the block had an mtime: line
-    int       bHasAtime;    // TRUE when the block had an atime: line
-    int       bHasSize;     // TRUE when the block had a size: line
+    bool      bHasMode;     // true when the block had a mode: line
+    bool      bHasUid;      // true when the block had a uid: line
+    bool      bHasGid;      // true when the block had a gid: line
+    bool      bHasMtime;    // true when the block had an mtime: line
+    bool      bHasAtime;    // true when the block had an atime: line
+    bool      bHasSize;     // true when the block had a size: line
+};
+
+/*----------------------------------------------------------------------------*/
+/* Bfc_strctWalkDir -- one folder an extract is inside, as a link chain on    */
+/* the C stack: each directory level of BFC_ExtractNode keeps one in its own  */
+/* frame while it walks its children, linked to the level above.  Following   */
+/* links needs it: a link whose folder target is one of these, or holds one,  */
+/* would lead the walk back into itself without end (Bfc_InsideWalk).         */
+/*----------------------------------------------------------------------------*/
+struct Bfc_strctWalkDir
+{
+    const char              *pszImage;    // the folder's image path as read -- a link already resolved, so no level's path holds a link
+    struct Bfc_strctWalkDir *pParent;     // the level above, or NULL at the copy's top
 };
 
 /*----------------------------------------------------------------------------*/
@@ -119,6 +136,7 @@ struct BFM_Record
 /*----------------------------------------------------------------------------*/
 struct BFC_Run
 {
+    struct Bfc_strctWalkDir *pWalkDirs;                   // extract: the innermost folder being walked (its chain the folders above it), or NULL outside every folder -- the loop test of a followed link
     BFE_CopyCallback    pfnEvent;                         // the caller's event callback, or NULL for none
     void               *pvContext;                        // passed to pfnEvent unchanged
     FILE               *pManifest;                        // extract: the open manifest being written (under its temporary name), or NULL
@@ -128,10 +146,10 @@ struct BFC_Run
     int                 nRecords;                         // import: how many records pRecords holds
     BFE_ExtractOptions  optExtract;                       // extract options (zeros when the caller passed NULL)
     BFE_ImportOptions   optImport;                        // import options (the usual defaults when the caller passed NULL)
-    int                 bManifestEmpty;                   // extract: TRUE until the first block is written (no blank line before it)
-    int                 bLeaveOutClash;                   // extract: TRUE when a MANIFEST_CLASH was answered KEEP_MANIFEST -- the top entries named as the manifest are left out
-    int                 bTreeManifest;                    // import: TRUE when the tree's _ext4meta.txt was recognised as its manifest -- the walk then does not import it
-    int                 bCancelled;                       // TRUE once the run must stop -- a callback replied BFE_REPLY_CANCEL, or memory ran out (iStopStatus); every loop and level then stops and returns
+    bool                bManifestEmpty;                   // extract: true until the first block is written (no blank line before it)
+    bool                bLeaveOutClash;                   // extract: true when a MANIFEST_CLASH was answered KEEP_MANIFEST -- the top entries named as the manifest are left out
+    bool                bTreeManifest;                    // import: true when the tree's _ext4meta.txt was recognised as its manifest -- the walk then does not import it
+    bool                bCancelled;                       // true once the run must stop -- a callback replied BFE_REPLY_CANCEL, or memory ran out (iStopStatus); every loop and level then stops and returns
     int                 iStopStatus;                      // BFE_OK, or BFE_ERR_NO_MEMORY once an item ran out of memory: the whole run stopped at that item, and BFC_RunResult returns it
     char                szStopPath[BFC_STOP_PATH_BYTES];  // the image path of the item that ran out of memory, for the detail line; "" until then
     int                 nErrors;                          // how many BFE_EVENT_ERROR events were raised
@@ -207,7 +225,7 @@ static int BFC_Emit(struct BFC_Run *pRun, uint32_t uiKind, uint32_t uiType, int 
         /* longer: nothing is allocated now.  The item's own ERROR still       */
         /* goes to the callback below, so the caller lists it.                 */
         pRun->iStopStatus = BFE_ERR_NO_MEMORY;
-        pRun->bCancelled  = TRUE;
+        pRun->bCancelled  = true;
 
         if (pszImage != NULL)
         {   /* The item has an image path to name (every walker passes one). */
@@ -245,7 +263,7 @@ static int BFC_Emit(struct BFC_Run *pRun, uint32_t uiKind, uint32_t uiType, int 
 
     if (iReply == BFE_REPLY_CANCEL)
     {   /* Latch it: every loop and every level checks this flag and returns. */
-        pRun->bCancelled = TRUE;
+        pRun->bCancelled = true;
     }
 
     /* The caller acts on the reply only for a CONFLICT. */
@@ -347,7 +365,7 @@ static void BFM_WriteBlock(struct BFC_Run *pRun, const char *pszRel, const BFE_E
     }
 
     /* Every later block now needs its separator. */
-    pRun->bManifestEmpty = FALSE;
+    pRun->bManifestEmpty = false;
 
     /* Every block names the entry and its type first.  The type indexes     */
     /* the name table directly: the directory reader only ever reports the   */
@@ -449,9 +467,9 @@ static void BFM_WriteBlock(struct BFC_Run *pRun, const char *pszRel, const BFE_E
 /*     pszName : one entry name from the image, UTF-8.                        */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : TRUE when the name is the manifest's, letter case aside.         */
+/*     bool : true when the name is the manifest's, letter case aside.        */
 /*----------------------------------------------------------------------------*/
-static int BFC_NameIsManifest(const char *pszName)
+static bool BFC_NameIsManifest(const char *pszName)
 {
     /* Equal but for ASCII letter case. */
     return(_stricmp(pszName, BFC_MANIFEST_NAME8) == 0);
@@ -486,7 +504,7 @@ static wchar_t *BFM_TempPath(const wchar_t *pwszFinal, char **ppszTopNames, int 
     wchar_t  awszSuffix[24];
     char     aszLeaf[48];
     wchar_t *pwszTemp;
-    int      bTaken;
+    bool     bTaken;
     int      n;
     int      i;
 
@@ -519,7 +537,7 @@ static wchar_t *BFM_TempPath(const wchar_t *pwszFinal, char **ppszTopNames, int 
             {   /* One image name per iteration. */
                 if (_stricmp(ppszTopNames[i], aszLeaf) == 0)
                 {   /* An entry of the image would be extracted onto it. */
-                    bTaken = TRUE;
+                    bTaken = true;
                     break;
                 }
             }
@@ -617,7 +635,7 @@ static int BFM_OpenManifest(struct BFC_Run *pRun, wchar_t *pwszFinal, char **pps
 /*----------------------------------------------------------------------------*/
 static void BFM_Publish(struct BFC_Run *pRun, const char *pszImage)
 {
-    int bWhole;
+    bool bWhole;
 
     if (pRun->pManifest == NULL)
     {   /* No manifest is being written. */
@@ -631,7 +649,7 @@ static void BFM_Publish(struct BFC_Run *pRun, const char *pszImage)
 
     if (fclose(pRun->pManifest) != 0)
     {   /* The final flush failed: the file on disk is short. */
-        bWhole = FALSE;
+        bWhole = false;
     }
 
     /* The stream is gone either way. */
@@ -655,6 +673,8 @@ static void BFM_Publish(struct BFC_Run *pRun, const char *pszImage)
         /* no import looks for, and the run is partial.  What holds the      */
         /* final name is left as it is.  MoveFileExW replaces an ordinary    */
         /* file in one step, which is what keeps the final name whole.       */
+        /* MoveFileExW's answer is a Windows BOOL, tested in its own form,   */
+        /* on purpose -- not as the engine's bool.                           */
         _wremove(pRun->pwszManifestTmp);
         BFC_Emit(pRun, BFE_EVENT_ERROR, BFE_TYPE_FILE, BFE_ERR_IO_HOST, pszImage, pRun->pwszManifest, 0, 0);
     }
@@ -775,22 +795,22 @@ static uint32_t BFM_TypeFromName(const char *pszName)
 /*     pszPath : the record's path: value.                                    */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : TRUE when the path is "." or a relative path of non-empty names  */
-/*           none of which is "." or ".."; FALSE otherwise.                   */
+/*     bool : true when the path is "." or a relative path of non-empty names */
+/*            none of which is "." or ".."; false otherwise.                  */
 /*----------------------------------------------------------------------------*/
-static int BFM_RecordPathValid(const char *pszPath)
+static bool BFM_RecordPathValid(const char *pszPath)
 {
     const char *pszComponent;
     size_t      cbComponent;
 
     if (strcmp(pszPath, BFC_ROOT_RELATIVE) == 0)
     {   /* The tree's own top: the one place "." is the whole path. */
-        return(TRUE);
+        return(true);
     }
 
     if (pszPath[0] == '\0' || pszPath[0] == '/')
     {   /* Empty, or absolute: neither names a place inside the tree. */
-        return(FALSE);
+        return(false);
     }
 
     /* Each name in turn: the text up to the next '/' or the end. */
@@ -805,12 +825,12 @@ static int BFM_RecordPathValid(const char *pszPath)
             (cbComponent == 2 && pszComponent[0] == '.' && pszComponent[1] == '.'))
         {   /* An empty name (a leading, doubled or trailing '/'), a ".", or   */
             /* a "..": not a path BFE_Extract writes.                          */
-            return(FALSE);
+            return(false);
         }
 
         if (pszComponent[cbComponent] == '\0')
         {   /* That was the last name, and every name passed. */
-            return(TRUE);
+            return(true);
         }
 
         /* Past the name and its '/', to the next one. */
@@ -847,14 +867,14 @@ static int BFM_RecordPathValid(const char *pszPath)
 /*                                                                            */
 /* Arguments:                                                                 */
 /*     pwszManifest  : the manifest's host path.                              */
-/*     bNeedMark     : TRUE for a tree's manifest, which must begin with one  */
-/*                     of the two mark lines; FALSE for a sidecar.            */
+/*     bNeedMark     : true for a tree's manifest, which must begin with one  */
+/*                     of the two mark lines; false for a sidecar.            */
 /*     ppRecords     : receives the malloc'd, path-sorted record array (NULL  */
 /*                     when there are none).                                  */
 /*     pnRecords     : receives the record count.                             */
-/*     pbNotManifest : receives TRUE when a file was read and lacks the mark  */
-/*                     (bNeedMark only), FALSE otherwise; may be NULL when    */
-/*                     bNeedMark is FALSE.                                    */
+/*     pbNotManifest : receives true when a file was read and lacks the mark  */
+/*                     (bNeedMark only), false otherwise; may be NULL when    */
+/*                     bNeedMark is false.                                    */
 /*                                                                            */
 /* Returns:                                                                   */
 /*     int : BFE_OK (also for an absent manifest -- one not there at all --   */
@@ -864,8 +884,8 @@ static int BFM_RecordPathValid(const char *pszPath)
 /*           BFE_ERR_NO_MEMORY.  These are bare codes: nothing is recorded,   */
 /*           and the caller records the failure.                              */
 /*----------------------------------------------------------------------------*/
-static int BFM_Load(const wchar_t *pwszManifest, int bNeedMark, struct BFM_Record **ppRecords, int *pnRecords,
-                    int *pbNotManifest)
+static int BFM_Load(const wchar_t *pwszManifest, bool bNeedMark, struct BFM_Record **ppRecords, int *pnRecords,
+                    bool *pbNotManifest)
 {
     struct BFM_Record *pList;
     struct BFM_Record *pGrown;
@@ -890,7 +910,7 @@ static int BFM_Load(const wchar_t *pwszManifest, int bNeedMark, struct BFM_Recor
 
     if (pbNotManifest != NULL)
     {   /* The caller wants to know about a file without the mark. */
-        *pbNotManifest = FALSE;
+        *pbNotManifest = false;
     }
 
     /* Binary, so the CR of a CRLF file reaches the parse, which drops it. */
@@ -989,7 +1009,7 @@ static int BFM_Load(const wchar_t *pwszManifest, int bNeedMark, struct BFM_Recor
                 /* Nothing is parsed; the caller is told, and imports it as   */
                 /* the data it is.                                            */
                 free(pszText);
-                *pbNotManifest = TRUE;
+                *pbNotManifest = true;
                 return(BFE_OK);
             }
         }
@@ -1089,7 +1109,7 @@ static int BFM_Load(const wchar_t *pwszManifest, int bNeedMark, struct BFM_Recor
             /* The copy itself: the buffer was sized from the value. */
             strcpy(pszCopy, pszValue);
 
-            /* The new record: zeroed, so every bHas* flag starts FALSE and the   */
+            /* The new record: zeroed, so every bHas* flag starts false and the   */
             /* target NULL, with only its path set; its type is UNKNOWN (0)       */
             /* until a type: line says otherwise.  Two blocks with the same       */
             /* path both stay -- a lookup then finds either one.                  */
@@ -1125,33 +1145,33 @@ static int BFM_Load(const wchar_t *pwszManifest, int bNeedMark, struct BFM_Recor
                 /* (The numbers below are not range-checked: text that is not   */
                 /* a number reads as 0.)                                        */
                 pList[nUsed - 1].uiMode   = (uint32_t)strtoul(pszValue, NULL, 8) & BFX_PERM_MASK;
-                pList[nUsed - 1].bHasMode = TRUE;
+                pList[nUsed - 1].bHasMode = true;
             }
             else if (strcmp(pszLine, "uid") == 0)
             {   /* Owner id, decimal. */
                 pList[nUsed - 1].uiUid   = (uint32_t)strtoul(pszValue, NULL, 10);
-                pList[nUsed - 1].bHasUid = TRUE;
+                pList[nUsed - 1].bHasUid = true;
             }
             else if (strcmp(pszLine, "gid") == 0)
             {   /* Group id, decimal. */
                 pList[nUsed - 1].uiGid   = (uint32_t)strtoul(pszValue, NULL, 10);
-                pList[nUsed - 1].bHasGid = TRUE;
+                pList[nUsed - 1].bHasGid = true;
             }
             else if (strcmp(pszLine, "mtime") == 0)
             {   /* Modify time, epoch seconds. */
                 pList[nUsed - 1].uiMtime   = (uint32_t)strtoul(pszValue, NULL, 10);
-                pList[nUsed - 1].bHasMtime = TRUE;
+                pList[nUsed - 1].bHasMtime = true;
             }
             else if (strcmp(pszLine, "atime") == 0)
             {   /* Access time, epoch seconds. */
                 pList[nUsed - 1].uiAtime   = (uint32_t)strtoul(pszValue, NULL, 10);
-                pList[nUsed - 1].bHasAtime = TRUE;
+                pList[nUsed - 1].bHasAtime = true;
             }
             else if (strcmp(pszLine, "size") == 0)
             {   /* The size when extracted, decimal: compared with the host       */
                 /* file's to tell whether it has changed since (BFC_ApplyMeta).   */
                 pList[nUsed - 1].ullSize  = (uint64_t)strtoull(pszValue, NULL, 10);
-                pList[nUsed - 1].bHasSize = TRUE;
+                pList[nUsed - 1].bHasSize = true;
             }
 
             /* Any other key -- ctime, which this engine writes, or one a   */
@@ -1363,14 +1383,390 @@ static int BFC_ExtractBytes(struct BFC_Run *pRun, const char *pszImage, const wc
 }
 
 /*----------------------------------------------------------------------------*/
+/* Bfc_ReadLinkText:                                                          */
+/*                                                                            */
+/* A symbolic link's target text, NUL-terminated, in a buffer of its own.     */
+/* The inode's size is the text's length, so the buffer is exact -- but only  */
+/* a size a link can have (BFC_LINK_TARGET_MAX) is trusted, as                */
+/* BFM_WriteBlock trusts it: a damaged inode's huge size is never allocated.  */
+/*                                                                            */
+/* Arguments:                                                                 */
+/*     pszImage : the link's image path.                                      */
+/*     pEntry   : the link's facts (its size is the text's length).           */
+/*     ppszText : receives the text (malloc'd; the caller frees it), or NULL  */
+/*                on a failure.                                               */
+/*                                                                            */
+/* Returns:                                                                   */
+/*     int : 0, or an errno value -- EIO for a size no link has, ENOMEM, or   */
+/*           the read's own failure.                                          */
+/*----------------------------------------------------------------------------*/
+static int Bfc_ReadLinkText(const char *pszImage, const BFE_Entry *pEntry, char **ppszText)
+{
+    char   *pszText;
+    size_t  cbRead;
+    int     rc;
+
+    /* Nothing handed back until the text is whole. */
+    *ppszText = NULL;
+
+    if (pEntry->ullSize >= BFC_LINK_TARGET_MAX)
+    {   /* A size no link's target can have: the inode is damaged, and the   */
+        /* text is taken as unreadable rather than allocated.                */
+        return(EIO);
+    }
+
+    /* The buffer, one byte over the text for its NUL. */
+    pszText = (char *)malloc((size_t)pEntry->ullSize + 1);
+    if (pszText == NULL)
+    {   /* Out of memory: the caller stops the run (an ERROR, NO_MEMORY). */
+        return(ENOMEM);
+    }
+
+    /* The text's bytes, at most the inode's size.  The read (lwext4's or    */
+    /* squashfuse's, through BFS_ReadLink) does not terminate them, so the   */
+    /* count it hands back places the NUL.                                   */
+    rc = BFS_ReadLink(pszImage, pszText, (size_t)pEntry->ullSize, &cbRead);
+    if (rc != 0)
+    {   /* The read failed: the buffer goes, and the failure is the result. */
+        free(pszText);
+        return(rc);
+    }
+
+    /* Terminated and handed to the caller, who owns it now. */
+    pszText[cbRead] = '\0';
+    *ppszText = pszText;
+
+    /* The text is the caller's. */
+    return(0);
+}
+
+/*----------------------------------------------------------------------------*/
+/* Bfc_ResolveLink:                                                           */
+/*                                                                            */
+/* Where a symbolic link leads, inside the open filesystem: the image path    */
+/* of what it finally names, with that entry's facts.  Resolved as Linux      */
+/* resolves a path, component by component -- an absolute target from the     */
+/* filesystem's root, a relative one from the link's own folder; "." staying  */
+/* put and ".." going up (the root's ".." being the root); every component    */
+/* that is itself a link replaced by its own target where it stands, at any   */
+/* level, so a folder reached through a link is resolved too.  Every link     */
+/* met counts one hop, the first included; past BFE_LINK_HOPS_MAX the link    */
+/* is a loop (ELOOP), which is also what stops a chain of links that point    */
+/* at one another.  The path handed back holds no link, so the walk that      */
+/* copies from it, and the loop test against the folders being walked,        */
+/* compare real paths.                                                        */
+/*                                                                            */
+/* A target outside this filesystem cannot be told from a missing one -- the  */
+/* image holds only its own files -- so /proc/self, a path on another         */
+/* partition or a name that is simply gone all answer ENOENT, and the caller  */
+/* skips the link.  The resolution is done here, not by the path walks of     */
+/* lwext4 or squashfuse, because neither follows a link in a path.            */
+/*                                                                            */
+/* Arguments:                                                                 */
+/*     pszLink  : the link's image path (one with no link in its folders --   */
+/*                every path the extract walk holds is).                      */
+/*     pLink    : the link's facts (its target text's length).                */
+/*     ppszReal : receives the image path of what the link names (malloc'd;   */
+/*                the caller frees it), or NULL on a failure.                 */
+/*     pTarget  : receives that entry's facts.                                */
+/*                                                                            */
+/* Returns:                                                                   */
+/*     int : 0, or an errno value -- ENOENT (not in this filesystem),         */
+/*           ENOTDIR (a file used as a folder on the way), ELOOP (too many    */
+/*           links), ENOMEM, or a read's own failure.                         */
+/*----------------------------------------------------------------------------*/
+static int Bfc_ResolveLink(const char *pszLink, const BFE_Entry *pLink, char **ppszReal, BFE_Entry *pTarget)
+{
+    BFE_Entry  entry;
+    char      *pszCur;
+    char      *pszRest;
+    char      *pszText;
+    char      *pszNext;
+    char      *pszCandidate;
+    char      *pszCut;
+    size_t     cbText;
+    size_t     cbTail;
+    size_t     p;
+    size_t     q;
+    size_t     r;
+    char       cSave;
+    int        iHops;
+    bool       bMore;
+    int        rc;
+
+    /* Nothing handed back until the whole path is resolved. */
+    *ppszReal = NULL;
+
+    /* The link's own text is what is resolved, and it is the first hop. */
+    iHops = 1;
+    rc = Bfc_ReadLinkText(pszLink, pLink, &pszRest);
+    if (rc != 0)
+    {   /* The text cannot be read: nothing to resolve. */
+        return(rc);
+    }
+
+    /* The folder a relative target starts from: the link's own folder,     */
+    /* its path cut at the last '/' -- the root itself when the link sits   */
+    /* at the top.  A copy of the path, as it is cut and grown below.       */
+    pszCur = (char *)malloc(strlen(pszLink) + 1);
+    if (pszCur == NULL)
+    {   /* Out of memory: the text goes with the failure. */
+        free(pszRest);
+        return(ENOMEM);
+    }
+
+    strcpy(pszCur, pszLink);
+    pszCut = strrchr(pszCur, '/');
+    if (pszCut == NULL || pszCut == pszCur)
+    {   /* A link at the root (or a path with no '/', which the walk never   */
+        /* gives): its folder is the root.                                   */
+        strcpy(pszCur, "/");
+    }
+    else
+    {   /* A link deeper down: its folder is everything before its name. */
+        *pszCut = '\0';
+    }
+
+    /* An absolute target starts from the root instead. */
+    if (pszRest[0] == '/')
+    {   /* Absolute: the open filesystem's root, as the link's own system   */
+        /* would start from its root.                                       */
+        strcpy(pszCur, "/");
+    }
+
+    /* The components, one at a time, from the front of what is left.  The   */
+    /* text is cut IN PLACE: a component's end is overwritten with a NUL     */
+    /* while it is looked at, and put back after, so no copy of each name    */
+    /* is made.                                                              */
+    p = 0;
+    for (;;)
+    {   /* One component of the remaining path per iteration. */
+
+        /* Any run of '/' between components is one separator. */
+        while (pszRest[p] == '/')
+        {   /* One more '/' passed over. */
+            p++;
+        }
+
+        if (pszRest[p] == '\0')
+        {   /* Nothing left: pszCur is the answer. */
+            break;
+        }
+
+        /* The component: from p to the next '/' or the end.  Whether more   */
+        /* follow it is needed below -- a file may only end a path.          */
+        q = p;
+        while (pszRest[q] != '\0' && pszRest[q] != '/')
+        {   /* One more byte of the name. */
+            q++;
+        }
+
+        cSave = pszRest[q];
+        r = q;
+        while (pszRest[r] == '/')
+        {   /* The separator after it, passed over to see what follows. */
+            r++;
+        }
+
+        bMore = (pszRest[r] != '\0');
+        pszRest[q] = '\0';
+
+        if (strcmp(pszRest + p, ".") == 0)
+        {   /* "." names the folder it is in: nothing to do. */
+            pszRest[q] = cSave;
+            p = q;
+            continue;
+        }
+
+        if (strcmp(pszRest + p, "..") == 0)
+        {   /* ".." goes up one folder: pszCur cut at its last '/'.  The     */
+            /* root's ".." is the root, as on Linux -- never a step out of   */
+            /* the filesystem.                                               */
+            pszCut = strrchr(pszCur, '/');
+            if (pszCut == NULL || pszCut == pszCur)
+            {   /* At the root, or one level under it: the root. */
+                strcpy(pszCur, "/");
+            }
+            else
+            {   /* Deeper: the parent folder. */
+                *pszCut = '\0';
+            }
+
+            pszRest[q] = cSave;
+            p = q;
+            continue;
+        }
+
+        /* A name: the path it gives under the current folder, and its        */
+        /* facts -- not followed (BFX_FillEntry reads the entry itself), so   */
+        /* a link is seen as one.                                             */
+        pszCandidate = BFU_JoinImage(pszCur, pszRest + p);
+        if (pszCandidate == NULL)
+        {   /* Out of memory: both strings go with the failure. */
+            free(pszCur);
+            free(pszRest);
+            return(ENOMEM);
+        }
+
+        rc = BFX_FillEntry(pszCandidate, pszRest + p, &entry);
+        pszRest[q] = cSave;
+        if (rc != 0)
+        {   /* Not there: missing, or outside this filesystem altogether --   */
+            /* the image cannot tell the two apart.  The failure is the       */
+            /* answer (ENOENT, or ENOTDIR when a file stood where a folder    */
+            /* was needed), and the caller skips the link.                    */
+            free(pszCandidate);
+            free(pszCur);
+            free(pszRest);
+            return(rc);
+        }
+
+        if (entry.uiType == BFE_TYPE_SYMLINK)
+        {   /* Another link on the way: its text replaces it where it stands.   */
+            /* One more hop -- and past the limit, a loop: a chain that never   */
+            /* reaches a real entry would otherwise go on for ever.             */
+            iHops++;
+            if (iHops > BFE_LINK_HOPS_MAX)
+            {   /* Too many: refused as a loop. */
+                free(pszCandidate);
+                free(pszCur);
+                free(pszRest);
+                return(ELOOP);
+            }
+
+            rc = Bfc_ReadLinkText(pszCandidate, &entry, &pszText);
+            free(pszCandidate);
+            if (rc != 0)
+            {   /* That link's text cannot be read: nothing further to follow. */
+                free(pszCur);
+                free(pszRest);
+                return(rc);
+            }
+
+            /* The new remaining path: the link's text, a '/', and whatever   */
+            /* followed the link's name (the tail from r), in one buffer.     */
+            cbText = strlen(pszText);
+            cbTail = strlen(pszRest + r);
+            pszNext = (char *)malloc(cbText + 1 + cbTail + 1);
+            if (pszNext == NULL)
+            {   /* Out of memory: every string goes with the failure. */
+                free(pszText);
+                free(pszCur);
+                free(pszRest);
+                return(ENOMEM);
+            }
+
+            memcpy(pszNext, pszText, cbText);
+            pszNext[cbText] = '/';
+            memcpy(pszNext + cbText + 1, pszRest + r, cbTail + 1);
+
+            /* An absolute text restarts from the root; a relative one goes    */
+            /* on from the folder the link was found in (pszCur, unchanged).   */
+            if (pszText[0] == '/')
+            {   /* Absolute: back to the root. */
+                strcpy(pszCur, "/");
+            }
+
+            /* The old remaining path and the text are spent; resolution   */
+            /* starts again at the front of the new one.                   */
+            free(pszText);
+            free(pszRest);
+            pszRest = pszNext;
+            p = 0;
+            continue;
+        }
+
+        if (bMore && entry.uiType != BFE_TYPE_DIR)
+        {   /* A file (or a device) with more of the path after it: a path   */
+            /* cannot go through it, as on Linux.                            */
+            free(pszCandidate);
+            free(pszCur);
+            free(pszRest);
+            return(ENOTDIR);
+        }
+
+        /* An ordinary entry: the walk is now at it. */
+        free(pszCur);
+        pszCur = pszCandidate;
+        p = q;
+    }
+
+    /* The path is spent; what it named is pszCur.  Its facts are read once   */
+    /* more here, whatever the last step was -- a name, or a "." or ".."      */
+    /* that moved the walk to a folder whose facts were not read.             */
+    free(pszRest);
+    rc = BFX_FillEntry(pszCur, BFU_LastComponent(pszCur), pTarget);
+    if (rc != 0)
+    {   /* Gone between the steps (or the root unreadable): the failure. */
+        free(pszCur);
+        return(rc);
+    }
+
+    /* The real path, the caller's to free. */
+    *ppszReal = pszCur;
+
+    /* Resolved. */
+    return(0);
+}
+
+/*----------------------------------------------------------------------------*/
+/* Bfc_InsideWalk:                                                            */
+/*                                                                            */
+/* Whether copying a followed link's folder target would lead the extract     */
+/* back into itself: the target is a folder the walk is already inside, or    */
+/* holds one -- its copy would meet the same link again, without end.  Each   */
+/* folder being walked is in pRun's chain (Bfc_strctWalkDir), every path in   */
+/* it real (no link in it).  Paths are compared byte for byte: only ext2/3/4  */
+/* and squashfs hold links, and both match names exactly.  Copying the same   */
+/* data twice through two links that are NOT a loop is allowed and goes on.   */
+/*                                                                            */
+/* Arguments:                                                                 */
+/*     pRun     : the running extract.                                        */
+/*     pszReal  : the folder target's real image path.                        */
+/*                                                                            */
+/* Returns:                                                                   */
+/*     bool : true for a loop (the link is skipped), false otherwise.         */
+/*----------------------------------------------------------------------------*/
+static bool Bfc_InsideWalk(const struct BFC_Run *pRun, const char *pszReal)
+{
+    const struct Bfc_strctWalkDir *pDir;
+    size_t                         cbReal;
+
+    if (strcmp(pszReal, "/") == 0 && pRun->pWalkDirs != NULL)
+    {   /* The root holds every folder, so a link to it from anywhere inside   */
+        /* a walk is a loop.                                                   */
+        return(true);
+    }
+
+    /* Each folder being walked, from the innermost out. */
+    cbReal = strlen(pszReal);
+    for (pDir = pRun->pWalkDirs; pDir != NULL; pDir = pDir->pParent)
+    {   /* One folder of the walk per iteration. */
+        if (strcmp(pDir->pszImage, pszReal) == 0 ||
+            (strncmp(pDir->pszImage, pszReal, cbReal) == 0 && pDir->pszImage[cbReal] == '/'))
+        {   /* The target is this folder, or holds it (its path followed by   */
+            /* a '/' begins the folder's -- the '/' keeps "/a/b" from         */
+            /* counting as holding "/a/bc").                                  */
+            return(true);
+        }
+    }
+
+    /* No folder of the walk is the target or under it. */
+    return(false);
+}
+
+/*----------------------------------------------------------------------------*/
 /* BFC_ExtractNode:                                                           */
 /*                                                                            */
 /* Extract one image entry to its host path, and -- for a directory -- every  */
 /* entry beneath it.  A child whose name Windows cannot hold, or that is not  */
-/* valid UTF-8, is                                                            */
-/* recorded and SKIPPED without touching the host.  A failure on one item is  */
-/* reported and the walk continues; only a cancel, or an item that ran out of */
-/* memory (BFC_Emit), stops it.                                               */
+/* valid UTF-8, is recorded and SKIPPED without touching the host.  A failure */
+/* on one item is reported and the walk continues; only a cancel, or an item  */
+/* that ran out of memory (BFC_Emit), stops it.  With links followed, a       */
+/* symbolic link is resolved and its target extracted in its place by this    */
+/* same function, under the link's host and manifest paths; a directory       */
+/* level keeps its record in pRun's chain of folders being walked while its   */
+/* children are extracted, which is what the loop test reads.                 */
 /*                                                                            */
 /* Arguments:                                                                 */
 /*     pRun     : the running extract.                                        */
@@ -1385,15 +1781,18 @@ static int BFC_ExtractBytes(struct BFC_Run *pRun, const char *pszImage, const wc
 static void BFC_ExtractNode(struct BFC_Run *pRun, const char *pszImage, const wchar_t *pwszHost,
                             const char *pszRel, const BFE_Entry *pEntry)
 {
-    struct __utimbuf64   times;
+    struct __utimbuf64      times;
+    struct Bfc_strctWalkDir walkDir;
     BFE_Entry            child;
+    BFE_Entry            target;
+    char                *pszReal;
     char               **ppszNames;
     char                *pszChildImage;
     char                *pszChildRel;
     wchar_t             *pwszName;
     wchar_t             *pwszChildHost;
     int                  nNames;
-    int                  bNoMemory;
+    bool                 bNoMemory;
     int                  iKind;
     int                  iReply;
     int                  iStatus;
@@ -1402,6 +1801,62 @@ static void BFC_ExtractNode(struct BFC_Run *pRun, const char *pszImage, const wc
 
     if (pRun->bCancelled)
     {   /* The run was cancelled: do nothing more at any level. */
+        return;
+    }
+
+    if (pEntry->uiType == BFE_TYPE_SYMLINK && pRun->optExtract.bFollowLinks)
+    {   /* A symbolic link, and the caller asked for links to be followed:    */
+        /* what it names is copied under the link's own name and manifest     */
+        /* path, from the target's real image path, with the target's facts   */
+        /* -- so the manifest records a file or a folder, and an import       */
+        /* gives a real one back, not a link.                                 */
+        rc = Bfc_ResolveLink(pszImage, pEntry, &pszReal, &target);
+
+        if (rc == ENOENT || rc == ENOTDIR || rc == ELOOP)
+        {   /* Nothing in this filesystem to copy: the target is missing or    */
+            /* outside it (/proc, another partition), runs through a file,     */
+            /* or the chain of links is a loop.  The link is recorded as the   */
+            /* link it is and SKIPPED with the reason, and the copy goes on    */
+            /* -- as an unfollowed link would be.                              */
+            BFM_WriteBlock(pRun, pszRel, pEntry, pszImage);
+            if (rc == ELOOP)
+            {   /* Too many links: reported as a loop. */
+                BFC_Emit(pRun, BFE_EVENT_SKIPPED, BFE_TYPE_SYMLINK, BFE_ERR_LINK_LOOP, pszImage, pwszHost, 0, 0);
+            }
+            else
+            {   /* Not found, or not a folder where one was needed. */
+                BFC_Emit(pRun, BFE_EVENT_SKIPPED, BFE_TYPE_SYMLINK, BFX_MapErrno(rc), pszImage, pwszHost, 0, 0);
+            }
+
+            return;
+        }
+
+        if (rc != 0)
+        {   /* A real failure -- the link's text or an entry on the way could   */
+            /* not be read, or memory ran out (NO_MEMORY, which stops the       */
+            /* run, BFC_Emit): an ERROR, not a skip, and no manifest block,     */
+            /* nothing having been learned.                                     */
+            BFC_Emit(pRun, BFE_EVENT_ERROR, BFE_TYPE_SYMLINK, BFX_MapErrno(rc), pszImage, pwszHost, 0, 0);
+            return;
+        }
+
+        if (target.uiType == BFE_TYPE_DIR && Bfc_InsideWalk(pRun, pszReal))
+        {   /* A folder the copy is already inside, or one that holds it:      */
+            /* copying it would meet this link again, without end.  The link   */
+            /* is recorded and SKIPPED as a loop, and the copy goes on.        */
+            BFM_WriteBlock(pRun, pszRel, pEntry, pszImage);
+            BFC_Emit(pRun, BFE_EVENT_SKIPPED, BFE_TYPE_SYMLINK, BFE_ERR_LINK_LOOP, pszImage, pwszHost, 0, 0);
+            free(pszReal);
+            return;
+        }
+
+        /* The target, copied as any entry of its type is -- a file's bytes,   */
+        /* a folder and everything under it (its own links followed in         */
+        /* turn), anything else skipped as its type is -- to the link's host   */
+        /* path and manifest path.  The real path is freed after, the copy     */
+        /* done with it.                                                       */
+        BFC_ExtractNode(pRun, pszReal, pwszHost, pszRel, &target);
+        free(pszReal);
         return;
     }
 
@@ -1453,6 +1908,15 @@ static void BFC_ExtractNode(struct BFC_Run *pRun, const char *pszImage, const wc
             return;
         }
 
+        /* This folder joins the chain of folders being walked while its       */
+        /* children are copied, so a followed link below that leads back to    */
+        /* it, or to a folder above it, is seen as a loop (Bfc_InsideWalk).    */
+        /* The record lives in this frame; it leaves the chain when the loop   */
+        /* below ends, before anything else returns.                           */
+        walkDir.pszImage = pszImage;
+        walkDir.pParent  = pRun->pWalkDirs;
+        pRun->pWalkDirs  = &walkDir;
+
         for (i = 0; i < nNames && !pRun->bCancelled; i++)
         {   /* One child of this directory per iteration. */
 
@@ -1474,11 +1938,11 @@ static void BFC_ExtractNode(struct BFC_Run *pRun, const char *pszImage, const wc
             }
 
             /* The child's facts -- type, size, mode, owner, times -- from its   */
-            /* INODE (BFX_FillEntry, bifrost_engine.c; on a FAT session, from    */
-            /* its directory entry through BFT_StatEntry), which is what         */
-            /* decides below whether it is descended into, copied or skipped,    */
-            /* and what                                                          */
-            /* its manifest block records.                                       */
+            /* INODE (BFX_FillEntry, bifrost_engine.c; on a squashfs session     */
+            /* through squashfuse, BFQ_StatEntry; on a FAT one from its          */
+            /* directory entry, BFT_StatEntry), which is what decides below      */
+            /* whether it is descended into, copied or skipped, and what its     */
+            /* manifest block records.                                           */
             rc = BFX_FillEntry(pszChildImage, ppszNames[i], &child);
 
             if (rc != 0)
@@ -1515,7 +1979,7 @@ static void BFC_ExtractNode(struct BFC_Run *pRun, const char *pszImage, const wc
             /* and it says apart (bNoMemory) a malformed name from memory       */
             /* running out.                                                     */
             pwszName  = NULL;
-            bNoMemory = FALSE;
+            bNoMemory = false;
 
             if (BFU_HostNameValid(ppszNames[i]))
             {   /* Allowed by Windows' naming rules: convert it. */
@@ -1562,6 +2026,10 @@ static void BFC_ExtractNode(struct BFC_Run *pRun, const char *pszImage, const wc
             free(pszChildImage);
             free(pszChildRel);
         }
+
+        /* The children are done: this folder leaves the chain, the one   */
+        /* above becoming the innermost again.                            */
+        pRun->pWalkDirs = walkDir.pParent;
 
         /* The name list is done with. */
         BFX_FreeNames(ppszNames, nNames);
@@ -1651,8 +2119,9 @@ static void BFC_ExtractNode(struct BFC_Run *pRun, const char *pszImage, const wc
         return;
     }
 
-    /* A symlink, device, fifo or socket: NTFS has no form for it.  Record it   */
-    /* so the manifest still describes the whole tree, and report the skip.     */
+    /* A symlink (links not followed), device, fifo or socket: NTFS has no       */
+    /* form for it.  Record it so the manifest still describes the whole tree,   */
+    /* and report the skip.                                                      */
     BFM_WriteBlock(pRun, pszRel, pEntry, pszImage);
     BFC_Emit(pRun, BFE_EVENT_SKIPPED, pEntry->uiType, BFE_ERR_TYPE, pszImage, pwszHost, 0, 0);
 }
@@ -1769,7 +2238,7 @@ static void BFC_ManifestClash(struct BFC_Run *pRun, const char *pszImagePath, co
 
         if (iReply == BFE_REPLY_KEEP_MANIFEST)
         {   /* The manifest is kept: every top entry of that name is left out. */
-            pRun->bLeaveOutClash = TRUE;
+            pRun->bLeaveOutClash = true;
         }
         else if (iReply != BFE_REPLY_CANCEL)
         {   /* The data is kept (KEEP_FILE, or no answer that says otherwise):    */
@@ -1807,10 +2276,19 @@ static void BFC_ManifestClash(struct BFC_Run *pRun, const char *pszImagePath, co
 /* characters Windows does, but a volume written on another system can hold   */
 /* a name Windows reserves ("con.txt") or one ending in a dot.                */
 /*                                                                            */
+/* A squashfs session extracts as an ext2/3/4 one does, manifest included:    */
+/* squashfs keeps real modes, owners and links, read through its arms of the  */
+/* same calls (bfe_sqfs.c); its three times are its one modify time.          */
+/*                                                                            */
+/* With links followed, a top item that is itself a link is resolved first,   */
+/* so its target decides the shape: a folder is extracted as a tree, a file   */
+/* as one file whose sidecar records the file's facts.                        */
+/*                                                                            */
 /* Arguments:                                                                 */
 /*     pszImagePath : the image entry to extract.                             */
 /*     pwszHostPath : the host path to create for it.                         */
-/*     pOptions     : manifest / time options, or NULL for neither.           */
+/*     pOptions     : manifest / time / follow-links options, or NULL for     */
+/*                    none of them.                                           */
 /*     pfnEvent     : the event callback, or NULL.                            */
 /*     pvContext    : passed to pfnEvent unchanged.                           */
 /*                                                                            */
@@ -1831,14 +2309,17 @@ BFE_API int BFE_Extract(const char *pszImagePath, const wchar_t *pwszHostPath,
 {
     struct BFC_Run  run;
     BFE_Entry       entry;
+    BFE_Entry       topTarget;
     const wchar_t  *pwszLeaf;
+    const char     *pszSource;
     wchar_t        *pwszManifest;
     char          **ppszNames;
-    int             bNoMemory;
+    char           *pszTopReal;
+    bool            bNoMemory;
     char           *pszLeaf;
     size_t          i;
     int             nNames;
-    int             bLeafValid;
+    bool            bLeafValid;
     int             iStatus;
     int             rc;
 
@@ -1849,10 +2330,10 @@ BFE_API int BFE_Extract(const char *pszImagePath, const wchar_t *pwszHostPath,
         return(BFE_ERR_ARG);
     }
 
-    /* The gate: an image must be open -- of either kind, since the walk   */
-    /* reads a FAT session through its FAT arms -- and reading it needs    */
-    /* no write access.                                                    */
-    iStatus = BFX_EnterAnyFs(TRUE, FALSE);
+    /* The gate: an image must be open -- of a kind the walk reads (a FAT   */
+    /* or squashfs session through its own arms) -- and reading it needs    */
+    /* no write access.                                                     */
+    iStatus = BFX_EnterKinds(false, BFX_FSMASK_EXT | BFX_FSMASK_FAT | BFX_FSMASK_SQFS);
 
     if (iStatus != BFE_OK)
     {   /* Busy, or nothing open: the gate has said which, and holds   */
@@ -1884,7 +2365,7 @@ BFE_API int BFE_Extract(const char *pszImagePath, const wchar_t *pwszHostPath,
     /* The rules are written for UTF-8 names, so the leaf is converted;   */
     /* one that will not convert counts as invalid, while memory          */
     /* running out (bNoMemory) is refused as itself, below.               */
-    bLeafValid = FALSE;
+    bLeafValid = false;
     pszLeaf    = BFU_WideToUtf8(pwszLeaf, &bNoMemory);
 
     if (pszLeaf != NULL)
@@ -1917,7 +2398,7 @@ BFE_API int BFE_Extract(const char *pszImagePath, const wchar_t *pwszHostPath,
     memset(&run, 0, sizeof(run));
     run.pfnEvent       = pfnEvent;
     run.pvContext      = pvContext;
-    run.bManifestEmpty = TRUE;
+    run.bManifestEmpty = true;
 
     if (pOptions != NULL)
     {   /* The caller supplied options; otherwise both stay off (the         */
@@ -1926,11 +2407,12 @@ BFE_API int BFE_Extract(const char *pszImagePath, const wchar_t *pwszHostPath,
         run.optExtract = *pOptions;
     }
 
-    if (BFX_FsKind() == BFX_FS_FAT)
-    {   /* A FAT session: no manifest, whatever was asked (the header says    */
-        /* why).  Turned off here, before the tree's shape is looked at, so   */
-        /* neither the manifest's file nor its clash question is reached.     */
-        /* The time stamping option stays: a FAT file's time is real.         */
+    if (!BFX_FsTraits()->bUnixMeta)
+    {   /* A kind with no Unix facts to record (FAT and exFAT): no manifest,   */
+        /* whatever was asked (the header says why).  Turned off here,         */
+        /* before the tree's shape is looked at, so neither the manifest's     */
+        /* file nor its clash question is reached.  The time stamping option   */
+        /* stays: a FAT file's time is real.                                   */
         run.optExtract.bWriteManifest = 0;
     }
 
@@ -1945,6 +2427,26 @@ BFE_API int BFE_Extract(const char *pszImagePath, const wchar_t *pwszHostPath,
         return(iStatus);
     }
 
+    /* Where the data is read from: the item itself -- or, when it is a      */
+    /* link and links are followed, what it names, resolved now so that a    */
+    /* link to a folder is extracted as the tree it leads to (its manifest   */
+    /* inside the host folder) and a link to a file as one file (its         */
+    /* sidecar recording the file's facts, not the link's).  A link that     */
+    /* cannot be resolved is left as it is: the walk below meets it, and     */
+    /* skips or reports it as it does any link (BFC_ExtractNode).  The       */
+    /* real path is this call's to free, at every return from here on.       */
+    pszSource  = pszImagePath;
+    pszTopReal = NULL;
+    if (entry.uiType == BFE_TYPE_SYMLINK && run.optExtract.bFollowLinks)
+    {   /* A link at the top, to be followed. */
+        if (Bfc_ResolveLink(pszImagePath, &entry, &pszTopReal, &topTarget) == 0)
+        {   /* Resolved: the target's path and facts stand in for the    */
+            /* link's from here on.  A failure leaves pszTopReal NULL.   */
+            pszSource = pszTopReal;
+            entry     = topTarget;
+        }
+    }
+
     if (entry.uiType == BFE_TYPE_DIR)
     {   /* A TREE: its manifest lives inside the host folder, so the folder   */
         /* is made first and the manifest opened before the walk begins.      */
@@ -1955,7 +2457,8 @@ BFE_API int BFE_Extract(const char *pszImagePath, const wchar_t *pwszHostPath,
 
             if (pwszManifest == NULL)
             {   /* Out of memory composing the manifest's path: refuse, with   */
-                /* nothing created yet.                                        */
+                /* nothing created yet (the resolved path, if any, freed).     */
+                free(pszTopReal);
                 iStatus = BFX_Fail(BFE_ERR_NO_MEMORY, "out of memory");
                 BFX_Leave();
                 return(iStatus);
@@ -1965,25 +2468,27 @@ BFE_API int BFE_Extract(const char *pszImagePath, const wchar_t *pwszHostPath,
             /* clash question and the temporary name are settled against.      */
             /* A folder that cannot be read is refused here, before anything   */
             /* is made -- the walk could not have copied it either.            */
-            rc = BFX_CollectNames(pszImagePath, &ppszNames, &nNames);
+            rc = BFX_CollectNames(pszSource, &ppszNames, &nNames);
 
             if (rc != 0)
-            {   /* The top folder cannot be read: refuse, freeing the path. */
+            {   /* The top folder cannot be read: refuse, freeing both paths. */
                 free(pwszManifest);
-                iStatus = BFX_Fail(BFX_MapErrno(rc), "cannot read %s: %s", pszImagePath, strerror(rc));
+                iStatus = BFX_Fail(BFX_MapErrno(rc), "cannot read %s: %s", pszSource, strerror(rc));
+                free(pszTopReal);
                 BFX_Leave();
                 return(iStatus);
             }
 
             /* STEP 3: an entry there named as the manifest is asked about,   */
             /* once, before anything is created (BFC_ManifestClash).          */
-            BFC_ManifestClash(&run, pszImagePath, pwszManifest, ppszNames, nNames);
+            BFC_ManifestClash(&run, pszSource, pwszManifest, ppszNames, nNames);
 
             if (run.bCancelled)
             {   /* Cancelled at the question: nothing was made.  The run's   */
                 /* result reports the cancel.                                */
                 BFX_FreeNames(ppszNames, nNames);
                 free(pwszManifest);
+                free(pszTopReal);
                 iStatus = BFC_RunResult(&run);
                 BFX_Leave();
                 return(iStatus);
@@ -2013,7 +2518,8 @@ BFE_API int BFE_Extract(const char *pszImagePath, const wchar_t *pwszHostPath,
                 /* no temporary name free): refuse before a single entry is        */
                 /* copied.  BFM_OpenManifest has freed the path; only the flag     */
                 /* is held.  The folder may have been made; it is left, an empty   */
-                /* folder being harmless.                                          */
+                /* folder being harmless.  The resolved path, if any, is freed.    */
+                free(pszTopReal);
                 iStatus = BFX_Fail(iStatus, "cannot create the manifest in the destination folder");
                 BFX_Leave();
                 return(iStatus);
@@ -2028,15 +2534,17 @@ BFE_API int BFE_Extract(const char *pszImagePath, const wchar_t *pwszHostPath,
             }
         }
 
-        /* The walk, from the top folder, whose manifest path is ".". */
-        BFC_ExtractNode(&run, pszImagePath, pwszHostPath, BFC_ROOT_RELATIVE, &entry);
+        /* The walk, from the top folder (a followed link's target, when the   */
+        /* top item was one), whose manifest path is ".".                      */
+        BFC_ExtractNode(&run, pszSource, pwszHostPath, BFC_ROOT_RELATIVE, &entry);
     }
     else
     {   /* ONE ITEM: copy it with no manifest open, then write its sidecar. */
 
         /* The copy (or the record-only skip); with no manifest open, the   */
-        /* walker's block writes do nothing.                                */
-        BFC_ExtractNode(&run, pszImagePath, pwszHostPath, pszImagePath, &entry);
+        /* walker's block writes do nothing.  Read from pszSource (a        */
+        /* followed link's target file, when the item was one).             */
+        BFC_ExtractNode(&run, pszSource, pwszHostPath, pszImagePath, &entry);
 
         /* The sidecar's condition: asked for, not cancelled, nothing failed,   */
         /* and either the file really landed (nDone counts its DONE -- a        */
@@ -2068,10 +2576,15 @@ BFE_API int BFE_Extract(const char *pszImagePath, const wchar_t *pwszHostPath,
             {   /* The sidecar's path is the in-image path.  An import does   */
                 /* not look it up by that path: with a sidecar it takes the   */
                 /* one block it holds, whatever its path says (BFE_Import).   */
-                BFM_WriteBlock(&run, pszImagePath, &entry, pszImagePath);
+                /* The facts are the entry's -- a followed link's target's,   */
+                /* read from pszSource.                                       */
+                BFM_WriteBlock(&run, pszImagePath, &entry, pszSource);
             }
         }
     }
+
+    /* The resolved path of a followed top link is done with. */
+    free(pszTopReal);
 
     /* The manifest or sidecar, if one is being written: closed, and renamed   */
     /* into place only when whole; one that is not is removed and reported     */
@@ -2142,7 +2655,7 @@ static int BFC_CollectHostNames(const wchar_t *pwszDir, wchar_t ***pppwszNames, 
     DWORD            dwError;
     int              nCapacity;
     int              nUsed;
-    int              bFirst;
+    bool             bFirst;
 
     /* No names until the folder is read. */
     *pppwszNames = NULL;
@@ -2185,14 +2698,14 @@ static int BFC_CollectHostNames(const wchar_t *pwszDir, wchar_t ***pppwszNames, 
     ppwszList = NULL;
     nCapacity = 0;
     nUsed     = 0;
-    bFirst    = TRUE;
+    bFirst    = true;
 
     for (;;)
     {   /* One host folder entry per iteration: the one FindFirstFileW gave,   */
         /* then each that FindNextFileW gives.                                 */
         if (bFirst)
         {   /* The first entry is already in hand. */
-            bFirst = FALSE;
+            bFirst = false;
         }
         else if (!FindNextFileW(hFind, &find))
         {   /* No further entry.  Windows' reason is taken AT ONCE, before    */
@@ -2202,6 +2715,8 @@ static int BFC_CollectHostNames(const wchar_t *pwszDir, wchar_t ***pppwszNames, 
             /* report success for a copy that left names out -- so the        */
             /* names gathered are freed, the search ended, and the folder     */
             /* reported unreadable, as a folder that cannot be opened is.     */
+            /* FindNextFileW's answer is a Windows BOOL, tested in its own    */
+            /* form, on purpose -- not as the engine's bool.                  */
             dwError = GetLastError();
 
             if (dwError != ERROR_NO_MORE_FILES)
@@ -2319,9 +2834,9 @@ static int BFC_ApplyMeta(struct BFC_Run *pRun, const char *pszImage, const char 
     uint32_t                 uiMtime;
     uint32_t                 uiAtime;
     uint32_t                 uiNow;          // the moment of this import, epoch seconds: the change time, and any time no source supplies
-    int                      bSetMtime;
-    int                      bSetAtime;
-    int                      bTimesHold;
+    bool                     bSetMtime;
+    bool                     bSetAtime;
+    bool                     bTimesHold;
     int                      rc;
 
     /* STEP 1: the defaults -- what an item with no manifest record gets. */
@@ -2343,12 +2858,12 @@ static int BFC_ApplyMeta(struct BFC_Run *pRun, const char *pszImage, const char 
     uiGid     = pRun->optImport.uiGid;
     uiMtime   = uiHostMtime;
     uiAtime   = 0;
-    bSetMtime = FALSE;
-    bSetAtime = FALSE;
+    bSetMtime = false;
+    bSetAtime = false;
 
     if (pRun->optImport.bCopyMtime)
     {   /* The caller wants the host file's modify time carried over. */
-        bSetMtime = TRUE;
+        bSetMtime = true;
     }
 
     /* STEP 2: a manifest record of the same kind overrides, field by field. */
@@ -2380,31 +2895,31 @@ static int BFC_ApplyMeta(struct BFC_Run *pRun, const char *pszImage, const char 
         /* unequal to the record, so their times come from the host too;      */
         /* and a host filesystem keeping coarser times than a second (FAT     */
         /* keeps two) can make an untouched file read as changed.             */
-        bTimesHold = TRUE;
+        bTimesHold = true;
 
         if (uiType == BFE_TYPE_FILE)
         {   /* A file: compare what the record has with the host file now. */
             if (pRecord->bHasSize && pRecord->ullSize != ullHostSize)
             {   /* Its length changed since the extract. */
-                bTimesHold = FALSE;
+                bTimesHold = false;
             }
 
             if (pRecord->bHasMtime && pRecord->uiMtime != uiHostMtime)
             {   /* Its modify time is not the one the extract stamped. */
-                bTimesHold = FALSE;
+                bTimesHold = false;
             }
         }
 
         if (bTimesHold && pRecord->bHasMtime)
         {   /* The recorded modify time beats the host file's. */
             uiMtime   = pRecord->uiMtime;
-            bSetMtime = TRUE;
+            bSetMtime = true;
         }
 
         if (bTimesHold && pRecord->bHasAtime)
         {   /* The recorded access time; nothing else supplies one. */
             uiAtime   = pRecord->uiAtime;
-            bSetAtime = TRUE;
+            bSetAtime = true;
         }
     }
 
@@ -2421,10 +2936,11 @@ static int BFC_ApplyMeta(struct BFC_Run *pRun, const char *pszImage, const char 
     uiNow = (uint32_t)time(NULL);
     rc    = 0;
 
-    if (BFX_FsKind() != BFX_FS_FAT)
-    {   /* ext2/3/4: the mode, then the owner.  A FAT session holds         */
-        /* neither, so a record's mode and owner have nowhere to go there   */
-        /* and are passed over; only the modify time below is kept.         */
+    if (BFX_FsTraits()->bUnixMeta)
+    {   /* A kind with Unix facts (ext2/3/4): the mode, then the owner.  A   */
+        /* FAT session holds neither, so a record's mode and owner have      */
+        /* nowhere to go there and are passed over; only the modify time     */
+        /* below is kept.                                                    */
         rc = BFS_SetMode(pszImage, uiMode & BFX_PERM_MASK);
 
         if (rc == 0)
@@ -2656,7 +3172,7 @@ static void BFC_ImportNode(struct BFC_Run *pRun, const wchar_t *pwszHost, const 
                            const char *pszRel)
 {
     BFE_Entry   existing;
-    int         bNoMemory;
+    bool        bNoMemory;
     wchar_t   **ppwszNames;
     wchar_t    *pwszChildHost;
     char       *pszName;
@@ -2808,8 +3324,8 @@ static void BFC_ImportNode(struct BFC_Run *pRun, const wchar_t *pwszHost, const 
             }
 
             if (pszName == NULL ||
-                (BFX_FsKind() != BFX_FS_FAT && strlen(pszName) > BFX_NAME_MAX) ||
-                (BFX_FsKind() == BFX_FS_FAT && wcslen(ppwszNames[i]) > BFX_FAT_NAME_UNITS))
+                (!BFX_FsTraits()->bFatNames && strlen(pszName) > BFX_NAME_MAX) ||
+                (BFX_FsTraits()->bFatNames && wcslen(ppwszNames[i]) > BFX_FAT_NAME_UNITS))
             {   /* An unpaired surrogate, or longer than the filesystem holds:   */
                 /* it has no name for it.  SKIPPED, not ERROR -- the item is     */
                 /* left on the host, nothing failed -- reported against the      */
@@ -2867,12 +3383,13 @@ static void BFC_ImportNode(struct BFC_Run *pRun, const wchar_t *pwszHost, const 
     }
 
     /* A regular host file. */
-    if (BFX_FsKind() == BFX_FS_FAT && ullSize > BFT_MaxFileBytes())
-    {   /* Larger than the FAT volume can hold one file (4 GiB less one     */
-        /* byte on FAT12 / 16 / 32): refused BEFORE anything is touched,    */
-        /* ahead of the conflict question, so an existing entry is not      */
-        /* removed for a file that could never take its place.  NO_SPACE:   */
-        /* the volume has no room for a file of that size.                  */
+    if (ullSize > BFX_FsMaxFileBytes())
+    {   /* Larger than the volume can hold one file (on FAT12 / 16 / 32,      */
+        /* 4 GiB less one byte; ext2/3/4 sets no such limit, so never         */
+        /* there -- BFX_FsMaxFileBytes): refused BEFORE anything is           */
+        /* touched, ahead of the conflict question, so an existing entry is   */
+        /* not removed for a file that could never take its place.            */
+        /* NO_SPACE: the volume has no room for a file of that size.          */
         BFC_Emit(pRun, BFE_EVENT_ERROR, BFE_TYPE_FILE, BFE_ERR_NO_SPACE, pszImage, pwszHost, 0, ullSize);
         return;
     }
@@ -3221,7 +3738,7 @@ BFE_API int BFE_Import(const wchar_t *pwszHostPath, const char *pszImagePath,
     struct BFC_Run  run;
     wchar_t        *pwszManifest;
     const char     *pszRel;
-    int             bNotManifest;
+    bool            bNotManifest;
     int             iKind;
     int             iStatus;
     int             rc;
@@ -3234,12 +3751,12 @@ BFE_API int BFE_Import(const wchar_t *pwszHostPath, const char *pszImagePath,
         return(BFE_ERR_ARG);
     }
 
-    /* The gate: an image must be open -- of either kind, a FAT one being   */
-    /* written through bfe_fs.c's FAT arms -- and open for writing.         */
-    iStatus = BFX_EnterAnyFs(TRUE, TRUE);
+    /* The gate: an image must be open -- of a kind this function writes,   */
+    /* a FAT one through bfe_fs.c's FAT arms -- and open for writing.       */
+    iStatus = BFX_EnterKinds(true, BFX_FSMASK_EXT | BFX_FSMASK_FAT);
 
     if (iStatus != BFE_OK)
-    {   /* Busy, nothing open, or read-only: BFX_EnterAnyFs has said which,   */
+    {   /* Busy, nothing open, or read-only: BFX_EnterKinds has said which,   */
         /* and this call holds nothing to release.                            */
         return(iStatus);
     }
@@ -3333,7 +3850,7 @@ BFE_API int BFE_Import(const wchar_t *pwszHostPath, const char *pszImagePath,
         /* mark line to count as a manifest at all; a sidecar is not asked.   */
         /* A failed load has freed what it built, so the refusal below has    */
         /* no records to free.                                                */
-        bNotManifest = FALSE;
+        bNotManifest = false;
         iStatus      = BFM_Load(pwszManifest, iKind == BFC_HOST_DIR, &run.pRecords, &run.nRecords, &bNotManifest);
 
         if (iStatus != BFE_OK)
@@ -3358,7 +3875,7 @@ BFE_API int BFE_Import(const wchar_t *pwszHostPath, const char *pszImagePath,
         {   /* A manifest with its mark, or none there at all: the walk leaves   */
             /* out the file of that name at the tree's top, which is the         */
             /* manifest whenever it exists.                                      */
-            run.bTreeManifest = TRUE;
+            run.bTreeManifest = true;
         }
 
         /* The manifest's path is done with (after the event, which names it). */
@@ -3598,9 +4115,10 @@ static int BFC_WithinMeta(const char *pszTo, const BFE_Entry *pSource)
     /* keeps the type bits, so only the 12 permission bits are passed.     */
     rc = 0;
 
-    if (BFX_FsKind() != BFX_FS_FAT)
-    {   /* ext2/3/4: the mode, then the owner.  A FAT session has neither   */
-        /* (its entries' are made up), so they are passed over there.       */
+    if (BFX_FsTraits()->bUnixMeta)
+    {   /* A kind with Unix facts (ext2/3/4): the mode, then the owner.  A   */
+        /* FAT session has neither (its entries' are made up), so they are   */
+        /* passed over there.                                                */
         rc = BFS_SetMode(pszTo, pSource->uiMode & BFX_PERM_MASK);
 
         if (rc == 0)
@@ -3970,15 +4488,15 @@ static void BFC_WithinNode(struct BFC_Run *pRun, const char *pszFrom, const char
 /*     pszRight : the other.                                                  */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : TRUE when they name one entry, FALSE otherwise.                  */
+/*     bool : true when they name one entry, false otherwise.                 */
 /*----------------------------------------------------------------------------*/
-static int Bfc_PathsSame(const char *pszLeft, const char *pszRight)
+static bool Bfc_PathsSame(const char *pszLeft, const char *pszRight)
 {
     size_t cbMatched;
 
-    if (BFX_FsKind() == BFX_FS_FAT)
-    {   /* FAT: the right path matches the left, letter case aside, all the   */
-        /* way to the left one's end.                                         */
+    if (BFX_FsTraits()->bFatNames)
+    {   /* FAT's names: the right path matches the left, letter case aside,   */
+        /* all the way to the left one's end.                                 */
         return(BFT_PathFoldPrefix(pszLeft, pszRight, &cbMatched) && pszLeft[cbMatched] == '\0');
     }
 
@@ -4002,15 +4520,15 @@ static int Bfc_PathsSame(const char *pszLeft, const char *pszRight)
 /*     pszOuter : the path it may lie under.                                  */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : TRUE when pszInner lies under pszOuter, FALSE otherwise.         */
+/*     bool : true when pszInner lies under pszOuter, false otherwise.        */
 /*----------------------------------------------------------------------------*/
-static int Bfc_PathUnder(const char *pszInner, const char *pszOuter)
+static bool Bfc_PathUnder(const char *pszInner, const char *pszOuter)
 {
     size_t cbMatched;
 
-    if (BFX_FsKind() == BFX_FS_FAT)
-    {   /* FAT: the outer path matches the inner one's start, letter case   */
-        /* aside, and a '/' follows there.                                  */
+    if (BFX_FsTraits()->bFatNames)
+    {   /* FAT's names: the outer path matches the inner one's start,   */
+        /* letter case aside, and a '/' follows there.                  */
         return(BFT_PathFoldPrefix(pszInner, pszOuter, &cbMatched) && pszInner[cbMatched] == '/');
     }
 
@@ -4069,12 +4587,12 @@ BFE_API int BFE_CopyWithin(const char *pszImageFrom, const char *pszImageTo,
         return(BFE_ERR_ARG);
     }
 
-    /* The gate: an image must be open -- of either kind, a FAT one being   */
-    /* written through bfe_fs.c's FAT arms -- and open for writing.         */
-    iStatus = BFX_EnterAnyFs(TRUE, TRUE);
+    /* The gate: an image must be open -- of a kind this function writes,   */
+    /* a FAT one through bfe_fs.c's FAT arms -- and open for writing.       */
+    iStatus = BFX_EnterKinds(true, BFX_FSMASK_EXT | BFX_FSMASK_FAT);
 
     if (iStatus != BFE_OK)
-    {   /* Busy, nothing open, or read-only: BFX_EnterAnyFs has said which,   */
+    {   /* Busy, nothing open, or read-only: BFX_EnterKinds has said which,   */
         /* and this call holds nothing to release.                            */
         return(iStatus);
     }

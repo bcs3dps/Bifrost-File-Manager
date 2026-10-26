@@ -214,7 +214,7 @@ namespace BifrostFM
             /* attached and before any log could redirect the console's   */
             /* output to a file.                                          */
             Console.WriteLine("");
-            Console.WriteLine("BifrostFM " + APP_VERSION + " -- a file manager for ext2 / ext3 / ext4, FAT and exFAT image files and devices");
+            Console.WriteLine("BifrostFM " + APP_VERSION + " -- a file manager for ext2 / ext3 / ext4, squashfs, FAT and exFAT image files and devices");
             Console.WriteLine("");
             Console.WriteLine("Usage:");
             Console.WriteLine("  BifrostFM.exe                 open the window");

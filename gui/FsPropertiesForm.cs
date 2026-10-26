@@ -165,7 +165,7 @@ namespace BifrostFM
         private Button           Fsp_btnCopy;        // puts every row on the clipboard
         private Button           Fsp_btnClose;       // closes the window
         private StringBuilder    Fsp_sbText;         // every row as "Caption value" lines, for Copy
-        private int              Fsp_iWrap;          // the width every value wraps at, pixels: FSP_FEATURE_CHARS average characters of the dialog font (a top-docked table does not widen the window, so a longer value would be cut off)
+        private int              Fsp_iWrap;          // the width every value wraps at, pixels: FSP_FEATURE_CHARS average characters of the dialog font, or wider when the Capacity, Used or Free text needs it, as those never wrap (a top-docked table does not widen the window, so a longer value would be cut off)
         private WQU_clsWindowQueue Fsp_objQueue;     // the window's own command queue (WindowQueue.cs): Copy's handler posts to it, and it runs the copy through Fsp_RunItem, one item at a time
 
         /* The window's own commands, as its queue (Fsp_objQueue) carries   */
@@ -207,6 +207,11 @@ namespace BifrostFM
             uint   uiUsedInodes;
             string sLabel;
             string sWhole;
+            string sCapacity;
+            string sUsed;
+            string sFree;
+            int    iSlack;
+            int    iWidth;
 
             /* The caller's dialog font, on the form for the controls below    */
             /* to take once added (as found); the copy text starts empty and   */
@@ -217,6 +222,57 @@ namespace BifrostFM
             this.Font  = fntDialog;
             Fsp_sbText = new StringBuilder();
             Fsp_iWrap  = TextRenderer.MeasureText(new string('x', FSP_FEATURE_CHARS), fntDialog).Width;
+
+            /* HOW BIG, AND HOW FULL, worked out before any row is added:    */
+            /* their texts set the wrap width below.  Free is as the         */
+            /* superblock records it, which counts the blocks reserved for   */
+            /* root as free; a free count larger than the total can only     */
+            /* come from a damaged superblock, and is clamped so the sums    */
+            /* stay sane.                                                    */
+            ullTotal = stVolume.VLI_ullBlockCount * stVolume.VLI_uiBlockSize;
+            ullFree  = stVolume.VLI_ullFreeBlocks * stVolume.VLI_uiBlockSize;
+
+            if (ullFree > ullTotal)
+            {   /* Impossible on a sound filesystem: show it as empty, not negative. */
+                ullFree = ullTotal;
+            }
+
+            /* Used is what is not free, so it cannot wrap below zero now. */
+            ullUsed = ullTotal - ullFree;
+
+            /* Capacity, Used with its share, and Free, in the written size   */
+            /* form the device windows use (PartitionForm.cs's                */
+            /* DVF_SizeText).                                                 */
+            sCapacity = DVF_clsDeviceForm.DVF_SizeText(ullTotal);
+            sUsed     = DVF_clsDeviceForm.DVF_SizeText(ullUsed) + ", " + FSP_PercentText(ullUsed, ullTotal);
+            sFree     = DVF_clsDeviceForm.DVF_SizeText(ullFree);
+
+            /* Those three rows are never wrapped: a size broken across two   */
+            /* lines ("100.0" above its "%") reads as two values.  So the     */
+            /* wrap width every value takes is widened, when one of them is   */
+            /* wider, to that one's measured width and one "x" more -- the    */
+            /* slack, so the label's own measuring, which may differ from     */
+            /* this one by a pixel or two, still finds room for it.  The      */
+            /* window sizes itself to the table, so it widens with it, and    */
+            /* every other value then wraps at the same, wider width.         */
+            iSlack = TextRenderer.MeasureText("x", fntDialog).Width;
+            iWidth = TextRenderer.MeasureText(sCapacity, fntDialog).Width + iSlack;
+            if (iWidth > Fsp_iWrap)
+            {   /* The capacity is wider than the wrap: the wrap widened. */
+                Fsp_iWrap = iWidth;
+            }
+
+            iWidth = TextRenderer.MeasureText(sUsed, fntDialog).Width + iSlack;
+            if (iWidth > Fsp_iWrap)
+            {   /* The used row is wider: the wrap widened to it. */
+                Fsp_iWrap = iWidth;
+            }
+
+            iWidth = TextRenderer.MeasureText(sFree, fntDialog).Width + iSlack;
+            if (iWidth > Fsp_iWrap)
+            {   /* The free row is wider: the wrap widened to it. */
+                Fsp_iWrap = iWidth;
+            }
 
             /* A fixed dialog centred on the main window, out of the          */
             /* taskbar, that SIZES ITSELF to its content (AutoSize, growing   */
@@ -315,33 +371,23 @@ namespace BifrostFM
             {   /* The journal is somewhere else. */
                 Fsp_AddFact("Journal:", "on a separate device (an external journal), which cannot be reached from here: read-only");
             }
+            else if (stVolume.VLI_uiVolumeType == ENG_clsNative.ENG_VOLTYPE_SQUASHFS)
+            {   /* squashfs is why this filesystem never opens for writing:   */
+                /* said beside the access mode, as an external journal is.    */
+                Fsp_AddFact("Writable:", "never: squashfs is a compressed filesystem written whole, and nothing in it can be changed");
+            }
             else if ((stVolume.VLI_uiFeatureCompat & FSP_FCOM_FAST_COMMIT) != 0)
             {   /* fast_commit: the warning the first write gives, kept here too. */
                 Fsp_AddFact("Journal:", "with fast_commit: if writing here is interrupted, Linux may not replay the changes in progress (e2fsck may be needed); close cleanly");
             }
 
-            /* HOW BIG, AND HOW FULL.  Free is as the superblock records it,   */
-            /* which counts the blocks reserved for root as free; a free       */
-            /* count larger than the total can only come from a damaged        */
-            /* superblock, and is clamped so the sums stay sane.               */
-            ullTotal = stVolume.VLI_ullBlockCount * stVolume.VLI_uiBlockSize;
-            ullFree  = stVolume.VLI_ullFreeBlocks * stVolume.VLI_uiBlockSize;
-
-            if (ullFree > ullTotal)
-            {   /* Impossible on a sound filesystem: show it as empty, not negative. */
-                ullFree = ullTotal;
-            }
-
-            /* Used is what is not free, so it cannot wrap below zero now. */
-            ullUsed = ullTotal - ullFree;
-
-            /* Capacity, Used with its share (and the bar under it), Free,   */
-            /* in the written size form the device windows use               */
-            /* (PartitionForm.cs's DVF_SizeText).                            */
-            Fsp_AddFact("Capacity:", DVF_clsDeviceForm.DVF_SizeText(ullTotal));
-            Fsp_AddFact("Used:", DVF_clsDeviceForm.DVF_SizeText(ullUsed) + ", " + FSP_PercentText(ullUsed, ullTotal));
+            /* HOW BIG, AND HOW FULL: Capacity, Used with its share (and the   */
+            /* bar under it), Free -- their texts made at the top, where       */
+            /* they set the wrap width so none of them wraps.                  */
+            Fsp_AddFact("Capacity:", sCapacity);
+            Fsp_AddFact("Used:", sUsed);
             Fsp_AddUsedBar(ullUsed, ullTotal);
-            Fsp_AddFact("Free:", DVF_clsDeviceForm.DVF_SizeText(ullFree));
+            Fsp_AddFact("Free:", sFree);
 
             /* THE COUNTS, as e2fsck and dumpe2fs speak of them. */
             if (stVolume.VLI_uiFreeInodes > stVolume.VLI_uiInodeCount)
@@ -353,7 +399,16 @@ namespace BifrostFM
                 uiUsedInodes = stVolume.VLI_uiInodeCount - stVolume.VLI_uiFreeInodes;
             }
 
-            if (stVolume.VLI_uiVolumeType != ENG_clsNative.ENG_VOLTYPE_EXT)
+            if (stVolume.VLI_uiVolumeType == ENG_clsNative.ENG_VOLTYPE_SQUASHFS)
+            {   /* squashfs: its own block size (the unit its data is           */
+                /* compressed in), the blocks the image uses -- none free, as   */
+                /* it is written whole -- and its inode count; no feature       */
+                /* words (the engine reports 0s), so no features row.           */
+                Fsp_AddFact("Block size:", stVolume.VLI_uiBlockSize.ToString("N0") + " bytes");
+                Fsp_AddFact("Blocks:", stVolume.VLI_ullBlockCount.ToString("N0"));
+                Fsp_AddFact("Inodes:", stVolume.VLI_uiInodeCount.ToString("N0"));
+            }
+            else if (stVolume.VLI_uiVolumeType != ENG_clsNative.ENG_VOLTYPE_EXT)
             {   /* A FAT volume: the engine gives its clusters as the blocks,   */
                 /* so they are named as FAT names them; FAT has no inodes and   */
                 /* no feature words (the engine reports 0s), so those rows      */
@@ -428,8 +483,9 @@ namespace BifrostFM
         /*     stVolume : the filesystem's facts.                              */
         /*                                                                     */
         /* Returns:                                                            */
-        /*     string : "ext2", "ext3", "ext4", "ext journal device", or a FAT */
-        /*              volume's "FAT12", "FAT16", "FAT32" or "exFAT".         */
+        /*     string : "ext2", "ext3", "ext4", "ext journal device", a FAT    */
+        /*              volume's "FAT12", "FAT16", "FAT32" or "exFAT", or      */
+        /*              "squashfs".                                            */
         /*---------------------------------------------------------------------*/
         internal static string FSP_TypeName(VLI_stVolumeInfo stVolume)
         {
@@ -452,6 +508,11 @@ namespace BifrostFM
             if (stVolume.VLI_uiVolumeType == ENG_clsNative.ENG_VOLTYPE_EXFAT)
             {   /* exFAT. */
                 return("exFAT");
+            }
+
+            if (stVolume.VLI_uiVolumeType == ENG_clsNative.ENG_VOLTYPE_SQUASHFS)
+            {   /* squashfs, as blkid names it. */
+                return("squashfs");
             }
 
             /* An ext filesystem from here: named from its feature bits.    */

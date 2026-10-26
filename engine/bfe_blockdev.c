@@ -65,12 +65,12 @@
 static wchar_t    *BFD_pwszImage;                                                             // malloc'd copy of the image or device path; NULL until configured
 static uint64_t    BFD_ullOffset;                                                             // byte offset of the filesystem inside the file or device
 static uint64_t    BFD_ullLength;                                                             // byte length of the filesystem; 0 means "to the end"
-static int         BFD_bReadOnly;                                                             // TRUE: open read-only and refuse every write
+static bool        BFD_bReadOnly;                                                             // true: open read-only and refuse every write
 static BFV_Target  BFD_target = { INVALID_HANDLE_VALUE, 0, 0, BFV_NO_DISK, 0, 0, 0, 0, "" };  // the open file or device; its hFile is INVALID_HANDLE_VALUE while closed
 static uint8_t    *BFD_pbBounce;                                                              // the page-aligned bounce buffer, allocated while a DEVICE is open; NULL otherwise
 static uint8_t    *BFD_pbVerify;                                                              // receives a device write's read-back (BFD_BOUNCE_BYTES), allocated while a DEVICE is open writable; NULL otherwise
-static int         BFD_bVerify;                                                               // TRUE: read every device write back (BFD_SetVerify); cleared by BFD_Configure, so each operation decides
-static int         BFD_bNotKept;                                                              // TRUE once a device write in this operation read back different; cleared by BFD_Configure, read by BFD_WriteNotKept
+static bool        BFD_bVerify;                                                               // true: read every device write back (BFD_SetVerify); cleared by BFD_Configure, so each operation decides
+static bool        BFD_bNotKept;                                                              // true once a device write in this operation read back different; cleared by BFD_Configure, read by BFD_WriteNotKept
 static uint64_t    BFD_ullNotKeptAt;                                                          // the byte offset of the first write that read back different (meaningful while BFD_bNotKept)
 static uint32_t    BFD_uiGeneration;                                                          // how many configurations BFD_Configure has recorded (0 at load, wrapping); read by BFD_Generation
 static char        BFD_szLastIo[256];                                                         // one line about the last failed device-level open, read or write; "" when none since it was taken
@@ -442,7 +442,7 @@ static int BFD_DeviceWrite(uint64_t ullOffset, const uint8_t *pbIn, uint64_t cbB
     uint64_t cbLeft;
     uint64_t cbPiece;
     uint32_t uiSector;
-    int      bRagged;
+    bool     bRagged;
     int      iError;
 
     /* The device's real sector, and a cursor over the range to write. */
@@ -470,7 +470,7 @@ static int BFD_DeviceWrite(uint64_t ullOffset, const uint8_t *pbIn, uint64_t cbB
         if ((ullEnd % uiSector) != 0)
         {   /* The end is inside a sector. */
             ullEnd += uiSector - (ullEnd % uiSector);
-            bRagged = 1;
+            bRagged = true;
         }
 
         if (ullEnd > BFD_target.ullSize)
@@ -522,12 +522,12 @@ static int BFD_DeviceWrite(uint64_t ullOffset, const uint8_t *pbIn, uint64_t cbB
 /*     ullOffset : the first byte, from the start of the file.                */
 /*     pbBuf     : lwext4's buffer.                                           */
 /*     cbBytes   : how many bytes.                                            */
-/*     bWrite    : TRUE to write from the buffer, FALSE to read into it.      */
+/*     bWrite    : true to write from the buffer, false to read into it.      */
 /*                                                                            */
 /* Returns:                                                                   */
 /*     int : 0 when every byte was transferred; otherwise the Windows error.  */
 /*----------------------------------------------------------------------------*/
-static int BFD_FileTransfer(uint64_t ullOffset, uint8_t *pbBuf, uint64_t cbBytes, int bWrite)
+static int BFD_FileTransfer(uint64_t ullOffset, uint8_t *pbBuf, uint64_t cbBytes, bool bWrite)
 {
     uint64_t cbLeft;
     uint64_t cbPiece;
@@ -687,7 +687,7 @@ static int BFD_VerifyWrite(uint64_t ullOffset, const uint8_t *pbWritten, uint64_
                 /* end must still fail (BFD_WriteNotKept).  The place is the   */
                 /* START of this piece (pieces are up to 1 MiB) -- not the     */
                 /* first differing byte, which is not looked for.              */
-                BFD_bNotKept     = TRUE;
+                BFD_bNotKept     = true;
                 BFD_ullNotKeptAt = ullPos;
             }
 
@@ -728,9 +728,9 @@ static int BFD_VerifyWrite(uint64_t ullOffset, const uint8_t *pbWritten, uint64_
 /*              NULL.                                                         */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : TRUE when a write was not kept, FALSE otherwise.                 */
+/*     bool : true when a write was not kept, false otherwise.                */
 /*----------------------------------------------------------------------------*/
-int BFD_WriteNotKept(uint64_t *pullAt)
+bool BFD_WriteNotKept(uint64_t *pullAt)
 {
     if (pullAt != NULL)
     {   /* The caller wants the place too. */
@@ -885,9 +885,9 @@ void BFD_TargetClose(void)
 /*     None.                                                                  */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : TRUE while a handle is open, FALSE otherwise.                    */
+/*     bool : true while a handle is open, false otherwise.                   */
 /*----------------------------------------------------------------------------*/
-int BFD_TargetIsOpen(void)
+bool BFD_TargetIsOpen(void)
 {
     /* The handle is the state. */
     return(BFD_target.hFile != INVALID_HANDLE_VALUE);
@@ -922,10 +922,10 @@ uint64_t BFD_TargetOffset(void)
 /*     None.                                                                  */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : TRUE for a device, FALSE for a file; meaningful only while open  */
-/*           (it is learned at the open).                                     */
+/*     bool : true for a device, false for a file; meaningful only while open */
+/*            (it is learned at the open).                                    */
 /*----------------------------------------------------------------------------*/
-int BFD_TargetIsDevice(void)
+bool BFD_TargetIsDevice(void)
 {
     /* Learned at the open. */
     return(BFD_target.bDevice);
@@ -944,14 +944,14 @@ int BFD_TargetIsDevice(void)
 /*     pOther : the other target, open.                                       */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : TRUE when a session's target is open and pOther is (or may be)   */
-/*           the same thing; FALSE when no target is open or they differ.     */
+/*     bool : true when a session's target is open and pOther is (or may be)  */
+/*            the same thing; false when no target is open or they differ.    */
 /*----------------------------------------------------------------------------*/
-int BFD_TargetIsObject(const BFV_Target *pOther)
+bool BFD_TargetIsObject(const BFV_Target *pOther)
 {
     if (BFD_target.hFile == INVALID_HANDLE_VALUE)
     {   /* No session target open: nothing to collide with. */
-        return(FALSE);
+        return(false);
     }
 
     /* The session's target against the other, by identity. */
@@ -968,9 +968,9 @@ int BFD_TargetIsObject(const BFV_Target *pOther)
 /*     None.                                                                  */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : TRUE when configured read-only; valid once configured.           */
+/*     bool : true when configured read-only; valid once configured.          */
 /*----------------------------------------------------------------------------*/
-int BFD_TargetReadOnly(void)
+bool BFD_TargetReadOnly(void)
 {
     /* As configured. */
     return(BFD_bReadOnly);
@@ -1007,16 +1007,16 @@ int BFD_TargetReadOnly(void)
 /*     pcbBytes   : receives the length in bytes.                             */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : TRUE when the whole request lies inside the range; FALSE when    */
-/*           any part of it does not, with the detail line                    */
-/*           (BFD_LastIoText) saying where it was and what the range is.      */
+/*     bool : true when the whole request lies inside the range; false when   */
+/*            any part of it does not, with the detail line                   */
+/*            (BFD_LastIoText) saying where it was and what the range is.     */
 /*----------------------------------------------------------------------------*/
-static int BFD_InRange(struct ext4_blockdev *pDev, uint64_t ullBlock, uint32_t uiCount, const char *pszWhat,
+static bool BFD_InRange(struct ext4_blockdev *pDev, uint64_t ullBlock, uint32_t uiCount, const char *pszWhat,
                        uint64_t *pullOffset, uint64_t *pcbBytes)
 {
     uint64_t ullBlockSize;
     uint64_t ullRelative;
-    int      bInside;
+    bool     bInside;
 
     ullBlockSize = pDev->bdif->ph_bsize;
 
@@ -1024,7 +1024,7 @@ static int BFD_InRange(struct ext4_blockdev *pDev, uint64_t ullBlock, uint32_t u
     /* bytes, widened before the multiply, so it cannot overflow 64 bits.   */
     *pcbBytes   = ullBlockSize * (uint64_t)uiCount;
     *pullOffset = 0;
-    bInside     = FALSE;
+    bInside     = false;
 
     if (ullBlock <= UINT64_MAX / ullBlockSize)
     {   /* The block's byte offset fits in 64 bits: work it out, and test   */
@@ -1038,7 +1038,7 @@ static int BFD_InRange(struct ext4_blockdev *pDev, uint64_t ullBlock, uint32_t u
 
             if (ullRelative <= pDev->part_size && *pcbBytes <= pDev->part_size - ullRelative)
             {   /* Every byte asked for lies inside the range. */
-                bInside = TRUE;
+                bInside = true;
             }
         }
     }
@@ -1212,14 +1212,14 @@ static int BFD_DevClose(struct ext4_blockdev *pDev)
 /*     ullOffset : byte offset of the filesystem inside it; a multiple of 512. */
 /*     ullLength : byte length of the filesystem; a multiple of 512, or 0 for  */
 /*                 "to the end".                                               */
-/*     bReadOnly : TRUE to open read-only and refuse writes.                   */
+/*     bReadOnly : true to open read-only and refuse writes.                   */
 /*                                                                             */
 /* Returns:                                                                    */
 /*     int : 0 when recorded; EINVAL when the range is not sector-aligned;     */
 /*           ENOMEM when the path copy could not be allocated.  Nothing is     */
 /*           recorded on either failure.                                       */
 /*-----------------------------------------------------------------------------*/
-int BFD_Configure(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t ullLength, int bReadOnly)
+int BFD_Configure(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t ullLength, bool bReadOnly)
 {
     wchar_t *pwszCopy;
     size_t   cchImage;
@@ -1255,9 +1255,9 @@ int BFD_Configure(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t ullLeng
 
     /* A new operation: no write of it has been lost yet, and it reads back   */
     /* only if it says so (BFD_SetVerify).                                    */
-    BFD_bNotKept      = FALSE;
+    BFD_bNotKept      = false;
     BFD_ullNotKeptAt  = 0;
-    BFD_bVerify       = FALSE;
+    BFD_bVerify       = false;
 
     /* And it is counted, so the engine's error recorder can tell that this    */
     /* operation began inside the call it is reporting for (BFD_Generation).   */
@@ -1306,12 +1306,12 @@ uint32_t BFD_Generation(void)
 /* them, and a raw copy has its own whole-image verify.                       */
 /*                                                                            */
 /* Arguments:                                                                 */
-/*     bOn : TRUE to read every device write back, FALSE not to.              */
+/*     bOn : true to read every device write back, false not to.              */
 /*                                                                            */
 /* Returns:                                                                   */
 /*     void : the setting holds until the next BFD_Configure.                 */
 /*----------------------------------------------------------------------------*/
-void BFD_SetVerify(int bOn)
+void BFD_SetVerify(bool bOn)
 {
     /* Recorded; BFD_TargetWrite reads it. */
     BFD_bVerify = bOn;

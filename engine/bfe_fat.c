@@ -440,27 +440,27 @@ static void Bft_FillFacts(const FILINFO *pInfo, BFE_Entry *pEntry)
     pEntry->uiCtime = pEntry->uiMtime;
 }
 
-/*----------------------------------------------------------------------------*/
-/* Bft_FillEntry:                                                             */
-/*                                                                            */
-/* Lay one FatFs directory item out as a BFE_Entry, made up where FAT has no  */
-/* such fact (the file header says how; Bft_FillFacts fills them).            */
-/*                                                                            */
-/* An entry whose name FatFs could not convert is still listed, with type     */
-/* BFE_TYPE_UNKNOWN: shown, but not offered as a file or folder.              */
-/*                                                                            */
-/* Arguments:                                                                 */
-/*     pInfo  : FatFs's item, from f_readdir.                                 */
-/*     pEntry : receives the facts; zeroed first.                             */
-/*                                                                            */
-/* Returns:                                                                   */
-/*     int : TRUE when filled; FALSE when the name is longer than a BFE_Entry */
-/*           holds (BFX_ENTRY_NAME_MAX bytes of UTF-8), and nothing is        */
-/*           filled.  A guard: a FAT long name is at most 255 characters,     */
-/*           765 bytes, which FatFs's long-name buffer (ffconf.h FF_LFN_BUF)  */
-/*           is sized for and szName holds.                                   */
-/*----------------------------------------------------------------------------*/
-static int Bft_FillEntry(const FILINFO *pInfo, BFE_Entry *pEntry)
+/*-----------------------------------------------------------------------------*/
+/* Bft_FillEntry:                                                              */
+/*                                                                             */
+/* Lay one FatFs directory item out as a BFE_Entry, made up where FAT has no   */
+/* such fact (the file header says how; Bft_FillFacts fills them).             */
+/*                                                                             */
+/* An entry whose name FatFs could not convert is still listed, with type      */
+/* BFE_TYPE_UNKNOWN: shown, but not offered as a file or folder.               */
+/*                                                                             */
+/* Arguments:                                                                  */
+/*     pInfo  : FatFs's item, from f_readdir.                                  */
+/*     pEntry : receives the facts; zeroed first.                              */
+/*                                                                             */
+/* Returns:                                                                    */
+/*     bool : true when filled; false when the name is longer than a BFE_Entry */
+/*            holds (BFX_ENTRY_NAME_MAX bytes of UTF-8), and nothing is        */
+/*            filled.  A guard: a FAT long name is at most 255 characters,     */
+/*            765 bytes, which FatFs's long-name buffer (ffconf.h FF_LFN_BUF)  */
+/*            is sized for and szName holds.                                   */
+/*-----------------------------------------------------------------------------*/
+static bool Bft_FillEntry(const FILINFO *pInfo, BFE_Entry *pEntry)
 {
     size_t cbName;
 
@@ -476,7 +476,7 @@ static int Bft_FillEntry(const FILINFO *pInfo, BFE_Entry *pEntry)
     {   /* Longer than szName holds -- which no FAT name is, so a guard.  Not   */
         /* cut: a cut name would be the path of a different entry, or of        */
         /* none.                                                                */
-        return(FALSE);
+        return(false);
     }
 
     /* The name, its terminator and its length. */
@@ -498,7 +498,7 @@ static int Bft_FillEntry(const FILINFO *pInfo, BFE_Entry *pEntry)
     }
 
     /* Filled. */
-    return(TRUE);
+    return(true);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -1146,9 +1146,9 @@ uint64_t BFT_MaxFileBytes(void)
 /*     puiCode : receives the code point, or BFT_CODE_NOT_UTF8 | the byte.    */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : TRUE for a well-formed character, FALSE for a lone byte.         */
+/*     bool : true for a well-formed character, false for a lone byte.        */
 /*----------------------------------------------------------------------------*/
-static int Bft_NextCode(const unsigned char **ppbText, uint32_t *puiCode)
+static bool Bft_NextCode(const unsigned char **ppbText, uint32_t *puiCode)
 {
     const unsigned char *pb;
     uint32_t             uiCode;
@@ -1190,7 +1190,7 @@ static int Bft_NextCode(const unsigned char **ppbText, uint32_t *puiCode)
         /* and matches it only with the same byte.                            */
         *puiCode = BFT_CODE_NOT_UTF8 | (uint32_t)pb[0];
         *ppbText = pb + 1;
-        return(FALSE);
+        return(false);
     }
 
     for (i = 1; i <= nMore; i++)
@@ -1203,7 +1203,7 @@ static int Bft_NextCode(const unsigned char **ppbText, uint32_t *puiCode)
             /* byte that broke the run is read again as the next start.   */
             *puiCode = BFT_CODE_NOT_UTF8 | (uint32_t)pb[0];
             *ppbText = pb + 1;
-            return(FALSE);
+            return(false);
         }
 
         /* Its six bits joined on. */
@@ -1219,13 +1219,13 @@ static int Bft_NextCode(const unsigned char **ppbText, uint32_t *puiCode)
         /* is made.                                                            */
         *puiCode = BFT_CODE_NOT_UTF8 | (uint32_t)pb[0];
         *ppbText = pb + 1;
-        return(FALSE);
+        return(false);
     }
 
     /* The whole character, and the byte after it. */
     *puiCode = uiCode;
     *ppbText = pb + 1 + nMore;
-    return(TRUE);
+    return(true);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -1248,21 +1248,21 @@ static int Bft_NextCode(const unsigned char **ppbText, uint32_t *puiCode)
 /* Arguments:                                                                 */
 /*     pszPath    : the longer path, or one as long.                          */
 /*     pszPrefix  : the path it may begin with.                               */
-/*     pcbMatched : receives, on TRUE, how many bytes of pszPath matched the  */
-/*                  whole of pszPrefix; untouched on FALSE.                   */
+/*     pcbMatched : receives, on true, how many bytes of pszPath matched the  */
+/*                  whole of pszPrefix; untouched on false.                   */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : TRUE when every character of pszPrefix matches the character at  */
-/*           the same place in pszPath, FALSE otherwise.                      */
+/*     bool : true when every character of pszPrefix matches the character at */
+/*            the same place in pszPath, false otherwise.                     */
 /*----------------------------------------------------------------------------*/
-int BFT_PathFoldPrefix(const char *pszPath, const char *pszPrefix, size_t *pcbMatched)
+bool BFT_PathFoldPrefix(const char *pszPath, const char *pszPrefix, size_t *pcbMatched)
 {
     const unsigned char *pbPath;
     const unsigned char *pbPrefix;
     uint32_t             uiPath;
     uint32_t             uiPrefix;
-    int                  bPathText;
-    int                  bPrefixText;
+    bool                 bPathText;
+    bool                 bPrefixText;
 
     /* Both from their first byte. */
     pbPath   = (const unsigned char *)pszPath;
@@ -1273,7 +1273,7 @@ int BFT_PathFoldPrefix(const char *pszPath, const char *pszPrefix, size_t *pcbMa
         /* the path, per iteration.                                        */
         if (*pbPath == '\0')
         {   /* The path ended first: it is shorter than the prefix. */
-            return(FALSE);
+            return(false);
         }
 
         /* The two characters as code points, each side stepped on by its       */
@@ -1302,13 +1302,13 @@ int BFT_PathFoldPrefix(const char *pszPath, const char *pszPrefix, size_t *pcbMa
 
         if (uiPath != uiPrefix)
         {   /* Different characters, letter case aside. */
-            return(FALSE);
+            return(false);
         }
     }
 
     /* The whole prefix matched; this much of the path matched it. */
     *pcbMatched = (size_t)(pbPath - (const unsigned char *)pszPath);
-    return(TRUE);
+    return(true);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -1730,8 +1730,8 @@ int BFT_CheckMakeFs(uint32_t uiFsType, uint32_t uiSectorBytes, uint32_t uiCluste
 /* later sync could write back over this one.                                 */
 /*                                                                            */
 /* Arguments:                                                                 */
-/*     bFat32   : TRUE on FAT32, whose fields sit further in and which has a  */
-/*                backup boot sector; FALSE on FAT12 / 16.                    */
+/*     bFat32   : true on FAT32, whose fields sit further in and which has a  */
+/*                backup boot sector; false on FAT12 / 16.                    */
 /*     pszLabel : the label as given, already passed by BFT_CheckMakeFs.      */
 /*                                                                            */
 /* Returns:                                                                   */
@@ -1739,7 +1739,7 @@ int BFT_CheckMakeFs(uint32_t uiFsType, uint32_t uiSectorBytes, uint32_t uiCluste
 /*               guard: BFT_CheckMakeFs refused any such label before the     */
 /*               format); FR_DISK_ERR when a read or write failed.            */
 /*----------------------------------------------------------------------------*/
-static FRESULT Bft_WriteBootLabel(int bFat32, const char *pszLabel)
+static FRESULT Bft_WriteBootLabel(bool bFat32, const char *pszLabel)
 {
     BYTE  abSector[FF_MAX_SS];
     BYTE  abLabel[BFT_FAT_LABEL_MAX];

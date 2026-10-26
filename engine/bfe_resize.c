@@ -257,7 +257,7 @@ BFE_API int BFE_ResizeFs(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t 
     ext2_filsys   fs;
     errcode_t     retval;
     char         *pszUtf8;
-    int           bNoMemory;
+    bool          bNoMemory;
     const char   *pszWhy;
     char          szLine[BFRZ_TEXT_BYTES];
     blk64_t       newSize;
@@ -272,7 +272,7 @@ BFE_API int BFE_ResizeFs(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t 
 
     /* The gate: the busy flag only -- "no image open" is tested just   */
     /* below with its own message.                                      */
-    iStatus = BFX_Enter(FALSE, FALSE);
+    iStatus = BFX_Enter(false, false);
 
     if (iStatus != BFE_OK)
     {   /* Another call is running: BFX_Enter has said so, and the flag is   */
@@ -364,7 +364,7 @@ BFE_API int BFE_ResizeFs(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t 
     /* STEP 2: point the block device at the range, writable; the io manager   */
     /* opens it when libext2fs asks.  The error table makes error_message()    */
     /* speak libext2fs's codes.                                                */
-    iConfigure = BFD_Configure(pwszImage, ullOffset, ullLength, FALSE);
+    iConfigure = BFD_Configure(pwszImage, ullOffset, ullLength, false);
 
     if (iConfigure != 0)
     {   /* The range is not sector-aligned (EINVAL), or the path could not   */
@@ -388,7 +388,7 @@ BFE_API int BFE_ResizeFs(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t 
 
     /* A resize rewrites the filesystem's structure across the whole range,   */
     /* so every write it makes to a device is read back.                      */
-    BFD_SetVerify(TRUE);
+    BFD_SetVerify(true);
 
     /* libext2fs' message table, removed again by BFRZ_Finish. */
     add_error_table(&et_ext2_error_table);

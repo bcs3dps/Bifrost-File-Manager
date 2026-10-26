@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>squashfuse -- the changes made to it here, and the defects found in it</title>
+<style>
+
+body { font-family: Arial, sans-serif; font-size: 11pt; margin: 1in;
+       line-height: 1.4; max-width: 7.5in; color: #1a1a1a; }
+h1 { font-size: 18pt; color: #1a1a1a; border-bottom: 2px solid #333;
+     padding-bottom: 4pt; margin-top: 24pt; }
+h1:first-child { margin-top: 0; }
+h2 { font-size: 14pt; color: #1a1a1a; margin-top: 22pt;
+     border-bottom: 1px solid #999; padding-bottom: 2pt; }
+h3 { font-size: 12pt; color: #333; margin-top: 16pt; }
+h4 { font-size: 11pt; color: #333; margin-top: 12pt; margin-bottom: 4pt; }
+p  { margin: 6pt 0; }
+pre { background-color: #f0f0f0; border: 1px solid #ccc; padding: 8pt;
+      font-family: Consolas, monospace; font-size: 9.5pt; white-space: pre;
+      overflow-x: auto; line-height: 1.25; }
+code { font-family: Consolas, monospace; font-size: 10pt;
+       background-color: #f0f0f0; padding: 1pt 3pt; border-radius: 2px; }
+pre code { background-color: transparent; padding: 0; font-size: 9.5pt; }
+p.note, div.note { background-color: #fff3cd; border-left: 4px solid #ffc107;
+                   padding: 6pt 10pt; margin: 8pt 0; }
+p.important, div.important { background-color: #f8d7da;
+                             border-left: 4px solid #dc3545;
+                             padding: 6pt 10pt; margin: 8pt 0; }
+p.summary, div.summary { background-color: #d1ecf1;
+                         border-left: 4px solid #0c5460;
+                         padding: 6pt 10pt; margin: 8pt 0; }
+ul, ol { margin-top: 4pt; margin-bottom: 8pt; }
+li { margin-bottom: 4pt; }
+li > ul, li > ol { margin-top: 4pt; margin-bottom: 4pt; }
+/* Indented outline body. Use in markdown as:
+   <div class="indent" markdown="1"> ...markdown incl. code fences... </div>
+   (the md_in_html extension processes markdown inside the div). */
+div.indent { margin: 4pt 0 8pt 2em; }
+div.indent > :first-child { margin-top: 0; }
+div.indent > :last-child  { margin-bottom: 0; }
+table { border-collapse: collapse; margin: 10pt 0; width: 100%; }
+td, th { border: 1px solid #999; padding: 4pt 8pt; font-size: 10pt;
+         vertical-align: top; }
+th { background-color: #e0e0e0; text-align: left; }
+tr:nth-child(even) td { background-color: #f7f7f7; }
+a  { color: #1e3a8a; text-decoration: none; }
+a:hover { text-decoration: underline; }
+hr { border: none; border-top: 1px solid #999; margin: 16pt 0; }
+strong { color: #1a1a1a; }
+img { max-width: 100%; height: auto; }
+
+.doc-meta { color: #555; font-size: 10pt; margin-top: -6pt;
+            margin-bottom: 12pt; }
+.toc { background-color: #f7f7f7; border: 1px solid #ccc;
+       padding: 10pt 14pt; margin: 16pt 0 24pt; font-size: 10.5pt; }
+.toc h2 { font-size: 12pt; margin-top: 0; margin-bottom: 6pt; border: none;
+          color: #333; }
+.toc ul { margin: 0; padding-left: 20pt; }
+.toc li { margin-bottom: 2pt; }
+.toc a { color: #1e3a8a; }
+
+@media print {
+  body { margin: 0.75in; }
+  pre, table, div.note, div.important { page-break-inside: avoid; }
+  h1, h2, h3 { page-break-after: avoid; }
+}
+
+</style>
+</head>
+<body>
+<h1>squashfuse &ndash; the changes made to it here, and the defects found in it</h1>
+<div class="toc">
+<h2>Contents</h2>
+<ul>
+  <li><a href="#part-1-ndash-changes-made">Part 1 &ndash; changes made</a></li>
+  <li><a href="#part-2-ndash-found-by-reading-not-changed">Part 2 &ndash; found by reading, not changed</a></li>
+</ul>
+</div>
+<p>This program reads squashfs through <strong>squashfuse 0.6.5</strong>, the
+maintainers&rsquo; release archive (<code>squashfuse-0.6.5.tar.gz</code>, SHA-256
+<code>9ec44b8ee6309e09bdcdeba422edc745e876db16136acacb74ecc7e7131e5763</code>, from
+<a href="https://github.com/vasi/squashfuse/releases/tag/0.6.5">https://github.com/vasi/squashfuse/releases/tag/0.6.5</a>), built as a
+library for Windows with MinGW-w64 GCC. Only squashfuse&rsquo;s reader is used
+&ndash; <code>fs.c</code>, <code>dir.c</code>, <code>file.c</code>, <code>table.c</code>, <code>cache.c</code>, <code>decompress.c</code>,
+<code>swap.c</code>, <code>xattr.c</code> and <code>nonstd-stat.c</code> &ndash; with the zlib, liblzma and zstd
+decompressors; its FUSE programs, its threaded cache and its tree-walk
+helpers are not built. <code>sqfs_pread</code> and the port&rsquo;s <code>config.h</code> and
+<code>win32.h</code> are supplied by the host program, as squashfuse expects of a
+Windows build.</p>
+<p>Every squashfuse file is used exactly as released except the one change
+in Part 1. Part 2 lists what was found by reading the code and is not
+changed here.</p>
+<h2 id="part-1-ndash-changes-made">Part 1 &ndash; changes made</h2>
+<h3>Patch 1 &ndash; <code>decompress.c</code>: the Windows zlib decoder defined twice</h3>
+<p><strong>The defect.</strong> On Windows, <code>decompress.c</code> includes
+<code>win_decompress.c.inc</code> &ndash; the port&rsquo;s own small zlib decoder, built on
+tinfl &ndash; whenever <code>_WIN32</code> is defined. That file defines
+<code>sqfs_decompressor_zlib</code>. When the real zlib is also available
+(<code>HAVE_ZLIB_H</code>), the zlib block further down defines
+<code>sqfs_decompressor_zlib</code> again, and the build stops at the second
+definition. So a Windows build can use the port&rsquo;s decoder or the real
+zlib, but not choose the real one.</p>
+<p><strong>How it was shown.</strong> Building <code>decompress.c</code> with MinGW-w64 GCC 15.2,
+<code>_WIN32</code> defined (as it always is there) and <code>HAVE_ZLIB_H</code> defined:
+&ldquo;redefinition of &lsquo;sqfs_decompressor_zlib&rsquo;&rdquo;.</p>
+<p><strong>The fix.</strong> Include the port&rsquo;s decoder only when the real zlib is not
+built in:</p>
+<pre><code class="language-diff">--- squashfuse-0.6.5/decompress.c
++++ squashfuse-0.6.5/decompress.c
+@@ -29,7 +29,7 @@
+
+ #include &lt;string.h&gt;
+
+-#if _WIN32
++#if _WIN32 &amp;&amp; !defined(HAVE_ZLIB_H)
+    #include &quot;win_decompress.c.inc&quot;
+ #endif
+
+</code></pre>
+<p>(The copy here also carries a four-line comment above the changed line,
+saying why; it is not part of the fix.)</p>
+<h2 id="part-2-ndash-found-by-reading-not-changed">Part 2 &ndash; found by reading, not changed</h2>
+<h3><code>file.c</code>, <code>sqfs_read_range</code>: the negative-size test cannot fire where <code>sqfs_off_t</code> is unsigned</h3>
+<p><code>sqfs_read_range</code> begins <code>if (*size &lt; 0 || start &gt; file_size) return
+SQFS_ERR;</code>. Where <code>sqfs_off_t</code> is a signed type (<code>off_t</code> on POSIX) the
+first test refuses a negative size. Where it is unsigned &ndash; a Windows
+port that makes it a 64-bit unsigned integer &ndash; the test is always false
+and the compiler may drop it, so a &ldquo;negative&rdquo; size from a caller arrives
+as an enormous one. squashfuse&rsquo;s own callers never pass one, so nothing
+goes wrong through them; a caller of the library should not rely on the
+refusal on such a build. Suggested: test the size against the file&rsquo;s
+remaining length, which is right for either signedness.</p>
+<h3><code>file.c</code>, <code>sqfs_read_range</code>: a read that yields nothing is a failure</h3>
+<p>The function ends <code>return *size ? SQFS_OK : SQFS_ERR;</code>, so a request of
+zero bytes before the end of a file &ndash; or any request that copies
+nothing &ndash; is reported as an error rather than as zero bytes read. A
+caller that may ask for zero bytes, or that reads up to a size it has
+not clamped, has to clamp first (this program does). Suggested: return
+<code>SQFS_OK</code> with <code>*size</code> 0 when nothing was asked for.</p>
+<h3><code>fs.c</code>, <code>sqfs_readlink</code>: a buffer size of zero wraps</h3>
+<p>With a non-NULL buffer, <code>sqfs_readlink</code> computes <code>*size - 1</code> to leave room
+for the terminator. A <code>*size</code> of 0 wraps to the largest <code>size_t</code>, so the
+whole target is copied and terminated past the buffer. Only a caller&rsquo;s
+mistake reaches it (this program asks for the length first and allocates
+it). Suggested: refuse a zero size.</p>
+<h3><code>dir.c</code>, <code>sqfs_lookup_path</code>: a path through a file is an error, not &ldquo;not found&rdquo;</h3>
+<p>When a component before the last is not a directory, <code>sqfs_dir_lookup</code>
+fails in <code>sqfs_dir_open</code> and <code>sqfs_lookup_path</code> returns an error, so a
+caller cannot tell &ldquo;a path through a file&rdquo; from a read failure of the
+image. This program walks paths itself with the directory reader for that
+reason. A design note rather than a defect.</p>
+<h3><code>nonstd-stat.c</code>, <code>sqfs_mode</code>: the host&rsquo;s <code>S_IFBLK</code></h3>
+<p><code>sqfs_mode</code> turns an inode type into the host&rsquo;s <code>S_IF*</code> value. MinGW&rsquo;s
+<code>S_IFBLK</code> is 0x3000, not POSIX&rsquo;s 0x6000, so on that build a block
+device&rsquo;s mode word does not read as one to POSIX-minded code. This
+program takes every entry&rsquo;s type from the inode&rsquo;s type field instead. A
+porting note, not a defect in squashfuse.</p>
+</body>
+</html>

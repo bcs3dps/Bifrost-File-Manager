@@ -53,6 +53,7 @@ namespace BifrostFM
         internal const string SET_OPT_META_OUT   = "ExtractWritesManifest";    // 1: extracting writes the Unix metadata manifest; 0 or absent: it does not (DWORD)
         internal const string SET_OPT_META_IN    = "ImportUsesManifest";       // 1 or absent: importing restores metadata from a manifest when present; 0: it does not (DWORD)
         internal const string SET_OPT_SET_TIMES  = "ExtractSetsTimes";         // 1 or absent: extracted files take their modify time from the image; 0: they do not (DWORD)
+        internal const string SET_OPT_FOLLOW_LINKS = "ExtractFollowsLinks";    // 1: extracting copies what each symbolic link points to, under the link's name; 0 or absent: links are skipped (DWORD)
         internal const string SET_OPT_JSON_OPEN  = "OpenJsonInJsonEditor";     // 1 or absent: a plain Open of a text entry the program can tell is a config file -- JSON, INI or Klipper config, by its name, or JSON by its content -- goes to the structured editor; 0: to the text editor like any text (DWORD; the name predates INI and Klipper)
         internal const string SET_OPT_SHOW_FIXED = "ShowFixedDisks";           // 1: the Open Device list includes fixed (internal) disks; 0 or absent: removable, USB, SD and MMC only (DWORD)
         internal const string SET_OPT_READ_XZ    = "ReadDeviceCompressXz";     // 1: Read Device's "Compress the image as .xz" box starts ticked (the last choice made); 0 or absent: unticked (DWORD)

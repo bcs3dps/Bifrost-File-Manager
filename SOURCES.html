@@ -120,7 +120,7 @@ and licence its own files state.</p>
 </tr>
 <tr>
 <td><code>engine\</code> (the files at the top of the folder)</td>
-<td>The engine: <code>bifrost_engine.h</code> is its public interface; <code>bifrost_engine.c</code> and the <code>bfe_*.c</code> / <code>bfe_*.h</code> files are the session, browsing, editing, copying, the FAT and exFAT side over FatFs, block devices, device access, imaging, compressed images, formatting, checking, resizing and the capacity test. Built by <code>engine\build_engine.bat</code>.</td>
+<td>The engine: <code>bifrost_engine.h</code> is its public interface; <code>bifrost_engine.c</code> and the <code>bfe_*.c</code> / <code>bfe_*.h</code> files are the session, browsing, editing, copying, the FAT and exFAT side over FatFs, the read-only squashfs side over squashfuse, block devices, device access, imaging, compressed images, formatting, checking, resizing and the capacity test. Built by <code>engine\build_engine.bat</code>.</td>
 </tr>
 <tr>
 <td><code>engine\lwext4\src\ext4_inline.c</code>, <code>ext4_casefold.c</code> and their headers in <code>engine\lwext4\include\</code></td>
@@ -171,17 +171,22 @@ and licence its own files state.</p>
 </tr>
 <tr>
 <td><code>engine\compress\xz-5.8.1\</code></td>
-<td>liblzma from XZ Utils 5.8.1 (.xz images)</td>
+<td>liblzma from XZ Utils 5.8.1 (.xz images, and squashfs &ldquo;xz&rdquo; and &ldquo;lzma&rdquo; blocks; its BCJ filters read)</td>
 <td>The XZ Utils authors; 0BSD (<code>COPYING</code>, <code>COPYING.0BSD</code>).</td>
 </tr>
 <tr>
 <td><code>engine\compress\zlib-1.3.1\</code></td>
-<td>zlib 1.3.1 (.gz and .zip images)</td>
+<td>zlib 1.3.1 (.gz and .zip images, and squashfs &ldquo;gzip&rdquo; blocks)</td>
 <td>Jean-loup Gailly and Mark Adler; the zlib licence (<code>LICENSE</code>).</td>
 </tr>
 <tr>
+<td><code>engine\squashfuse\</code></td>
+<td>squashfuse 0.6.5&rsquo;s reader, the squashfs implementation the engine works through (read-only)</td>
+<td>Dave Vasilevsky (<code>squashfs_fs.h</code> Phillip Lougher&rsquo;s); BSD 2-clause (<code>LICENSE</code>). Used as released but for <code>decompress.c</code>, which carries <code>BifrostFM squashfuse patch 1</code> (<code>SQUASHFUSE_UPSTREAM.md</code>).</td>
+</tr>
+<tr>
 <td><code>engine\compress\zstd-1.5.7\</code></td>
-<td>Zstandard 1.5.7 (.zst images)</td>
+<td>Zstandard 1.5.7 (.zst images, and squashfs &ldquo;zstd&rdquo; blocks)</td>
 <td>Meta Platforms, Inc. and affiliates; BSD or GPL-2.0, at your choice (<code>LICENSE</code>, <code>COPYING</code>).</td>
 </tr>
 <tr>
@@ -404,7 +409,7 @@ exe by <code>build_gui.bat</code> into <code>out\</code> at the top of the tree.
 </tr>
 <tr>
 <td><code>MainForm.cs</code></td>
-<td>The main window: the image pane on the left (an image file&rsquo;s or a device partition&rsquo;s filesystem &ndash; ext2/3/4, FAT or exFAT) and the Windows pane on the right, each with its path row, toolbar, five views, sorting and column sizing; the menus and the right-click menus; and the click side of every command &ndash; the selection, folder and state captured and posted to the command worker (<code>MainCommand.cs</code> and the <code>Command*</code> files), the only thing that reaches the engine: Extract and Import, drag and drop and the clipboard, New Folder, New File, Rename, Delete and Properties in either pane, Open and Open As, Enable Writing, Open, Read, Write and Partition Device with the restart as Administrator, New Image, Check Filesystem and its Repair. Also the Windows pane&rsquo;s own reading and its actions (run once the worker admits them), the making of the editors and viewers the worker opens, the hand-over of their saves to the editor coordinator, and the remembered window, panes and options.</td>
+<td>The main window: the image pane on the left (an image file&rsquo;s or a device partition&rsquo;s filesystem &ndash; ext2/3/4, squashfs, FAT or exFAT) and the Windows pane on the right, each with its path row, toolbar, five views, sorting and column sizing; the menus and the right-click menus; and the click side of every command &ndash; the selection, folder and state captured and posted to the command worker (<code>MainCommand.cs</code> and the <code>Command*</code> files), the only thing that reaches the engine: Extract and Import, drag and drop and the clipboard, New Folder, New File, Rename, Delete and Properties in either pane, Open and Open As, Enable Writing, Open, Read, Write and Partition Device with the restart as Administrator, New Image, Check Filesystem and its Repair. Also the Windows pane&rsquo;s own reading and its actions (run once the worker admits them), the making of the editors and viewers the worker opens, the hand-over of their saves to the editor coordinator, and the remembered window, panes and options.</td>
 </tr>
 <tr>
 <td><code>make_version.bat</code></td>
@@ -569,7 +574,7 @@ code in the sub-folders into one 64-bit DLL in <code>engine\out\</code>.</p>
 </tr>
 <tr>
 <td><code>bifrost_engine.c</code></td>
-<td>The engine&rsquo;s core: opening and closing an image or device (with the system-disk guard and volume locks; a range with no ext2/3/4 filesystem tried as FAT or exFAT), flushing, browsing and the simple edits (make, remove, a tree removed entry by entry, rename, permissions, owner, times, links), and the internals every other engine file shares &ndash; the one-call-at-a-time gate (which keeps the ext-only calls off a FAT session), the error recorder, the path rules and their canonical form, and the directory reader.</td>
+<td>The engine&rsquo;s core: opening and closing an image or device (with the system-disk guard and volume locks; a range with no ext2/3/4 filesystem tried as squashfs, by its magic, then as FAT or exFAT), flushing, browsing and the simple edits (make, remove, a tree removed entry by entry, rename, permissions, owner, times, links), and the internals every other engine file shares &ndash; the one-call-at-a-time gate (which keeps the ext-only calls off a FAT session), the error recorder, the path rules and their canonical form, and the directory reader.</td>
 </tr>
 <tr>
 <td><code>bfe_device.c</code>, <code>bfe_device.h</code></td>
@@ -577,7 +582,7 @@ code in the sub-folders into one 64-bit DLL in <code>engine\out\</code>.</p>
 </tr>
 <tr>
 <td><code>bfe_blockdev.c</code>, <code>bfe_blockdev.h</code></td>
-<td>The block device lwext4, the filesystem check and FatFs read and write through: an image file or a real disk presented as 512-byte blocks, with a device&rsquo;s sector alignment, the read-back that catches a card which does not keep its writes, and the read-only refusal.</td>
+<td>The block device lwext4, the filesystem check and FatFs read and write through, and squashfuse reads through: an image file or a real disk presented as 512-byte blocks, with a device&rsquo;s sector alignment, the read-back that catches a card which does not keep its writes, and the read-only refusal.</td>
 </tr>
 <tr>
 <td><code>bfe_fatio.c</code>, <code>bfe_fatio.h</code></td>
@@ -589,7 +594,11 @@ code in the sub-folders into one 64-bit DLL in <code>engine\out\</code>.</p>
 </tr>
 <tr>
 <td><code>bfe_fs.c</code>, <code>bfe_fs.h</code></td>
-<td>The file calls the engine&rsquo;s walks and edits make, written once for both kinds of filesystem: open, read, write and close a file, remove, make and remove directories, rename, set a mode, an owner or a time, and read or make a link &ndash; each going to lwext4 on an ext2/3/4 session and to FatFs on a FAT one, every result in lwext4&rsquo;s errno form, and what FAT cannot hold (modes, owners, links) refused as unsupported.</td>
+<td>The file calls the engine&rsquo;s walks and edits make, written once for every kind of filesystem: open, read, write and close a file, remove, make and remove directories, rename, set a mode, an owner or a time, and read or make a link &ndash; each going to lwext4 on an ext2/3/4 session, to FatFs on a FAT one and to squashfuse on a squashfs one, every result in lwext4&rsquo;s errno form, what FAT cannot hold (modes, owners, links) refused as unsupported, and every change on squashfs refused as read-only.</td>
+</tr>
+<tr>
+<td><code>bfe_sqfs.c</code>, <code>bfe_sqfs.h</code></td>
+<td>The engine&rsquo;s squashfs side: a squashfs 4.0 filesystem found by its magic where no ext2/3/4 one is, read through squashfuse, read-only only &ndash; the read squashfuse reads the image through (held inside the range, over the engine&rsquo;s block device), the mount and unmount, the volume&rsquo;s facts, one path&rsquo;s facts (types from the inode&rsquo;s type field, owners from the id table), a directory&rsquo;s names, a link&rsquo;s target and a file&rsquo;s bytes.</td>
 </tr>
 <tr>
 <td><code>bfe_internal.h</code></td>
@@ -601,7 +610,7 @@ code in the sub-folders into one 64-bit DLL in <code>engine\out\</code>.</p>
 </tr>
 <tr>
 <td><code>build_engine.bat</code></td>
-<td>The engine&rsquo;s build: every source of lwext4, the e2fsprogs pieces, the compression libraries, FatFs and the engine named one by one, compiled with gcc (the engine&rsquo;s own files to its warning bar) and linked with the compiler&rsquo;s runtime into one self-contained DLL.</td>
+<td>The engine&rsquo;s build: every source of lwext4, the e2fsprogs pieces, the compression libraries, FatFs, squashfuse&rsquo;s reader and the engine named one by one, compiled with gcc (the engine&rsquo;s own files to its warning bar) and linked with the compiler&rsquo;s runtime into one self-contained DLL.</td>
 </tr>
 <tr>
 <td><code>bfe_capacity.c</code></td>
@@ -667,9 +676,9 @@ marked <code>BifrostFM patch N</code> blocks.</p>
 </tr>
 </tbody>
 </table>
-<h3><code>engine\e2fsprogs\shim\</code> and <code>engine\compress\lzma_config\</code> &ndash; BifrostFM&rsquo;s own files</h3>
-<p>What the mirrored e2fsprogs and liblzma sources need in place of their own
-configure-generated headers and the Unix pieces MinGW lacks.</p>
+<h3><code>engine\e2fsprogs\shim\</code>, <code>engine\compress\lzma_config\</code> and <code>engine\sqfs_port\</code> &ndash; BifrostFM&rsquo;s own files</h3>
+<p>What the mirrored e2fsprogs, liblzma and squashfuse sources need in place
+of their own configure-generated headers and the Unix pieces MinGW lacks.</p>
 <table>
 <thead>
 <tr>
@@ -692,7 +701,11 @@ configure-generated headers and the Unix pieces MinGW lacks.</p>
 </tr>
 <tr>
 <td><code>compress\lzma_config\config.h</code></td>
-<td>liblzma&rsquo;s configuration, written by hand: .xz with the LZMA2 filter only, read and written, the three integrity checks, and the multi-threaded encoder on Windows threads.</td>
+<td>liblzma&rsquo;s configuration, written by hand: .xz with the LZMA2 filter, read and written; the BCJ filters, read only; the three integrity checks, and the multi-threaded encoder on Windows threads.</td>
+</tr>
+<tr>
+<td><code>sqfs_port\config.h</code>, <code>sqfs_port\win32.h</code></td>
+<td>squashfuse&rsquo;s configuration and Windows types, written for this engine: which decompressors are built (zlib, liblzma, zstd; not lz4 or lzo), and its file handle made a pointer to the engine&rsquo;s reader context, with the file-type macros MinGW lacks.</td>
 </tr>
 </tbody>
 </table>
@@ -722,8 +735,9 @@ without it.</p>
 <p><code>README.md</code> says what the program does, how to run it and how to build it;
 <code>LICENSE</code> is the text of the GNU General Public License, version 2;
 <code>LWEXT4_UPSTREAM.md</code> lists the defects found in lwext4 and the patches that
-fix them, each as a diff against upstream; this file is the map. Each of
-<code>README.md</code>, <code>SOURCES.md</code> and <code>LWEXT4_UPSTREAM.md</code> has a rendered <code>.html</code>
-beside it.</p>
+fix them, each as a diff against upstream; <code>SQUASHFUSE_UPSTREAM.md</code> does
+the same for squashfuse; this file is the map. Each of <code>README.md</code>,
+<code>SOURCES.md</code>, <code>LWEXT4_UPSTREAM.md</code> and <code>SQUASHFUSE_UPSTREAM.md</code> has a
+rendered <code>.html</code> beside it.</p>
 </body>
 </html>

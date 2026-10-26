@@ -453,6 +453,21 @@ namespace BifrostFM
             {   /* The whole sequence, as one command: nothing queued can   */
                 /* change what is open between the copy and the removal.    */
                 /* The finally below re-lists the pane.                     */
+                if (bChange || (bMove && objRequest.RQT_enmKind == KND_enmKind.Extract))
+                {   /* A copy that changes the image -- into it, within it,   */
+                    /* or a cut out of it, whose sources would be removed:    */
+                    /* on a filesystem nothing can write (squashfs) the       */
+                    /* whole request is refused first, with the read-only     */
+                    /* notice, before free names, the clipboard, a conflict   */
+                    /* question or a single item copied.  A drop of many      */
+                    /* files is one request, so it gets one notice.           */
+                    objSourceResult = Sys_RefuseReadOnlyFilesystem(objRequest);
+                    if (objSourceResult.RSL_iStatus != SYS_OK)
+                    {   /* Refused, the notice shown: nothing copied. */
+                        return(objSourceResult);
+                    }
+                }
+
                 if (objArgs != null && objArgs.CCA_bAutoNames)
                 {   /* A copy within the image into its own folder: the free    */
                     /* names first, before write access is asked for.  (The     */

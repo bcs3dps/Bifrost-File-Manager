@@ -6,9 +6,10 @@
 /*                                                                            */
 /* The engine's filesystem-neutral file calls: one function per file-level    */
 /* operation the session code makes, each a switch on the open session's      */
-/* kind (BFX_FsKind) that calls lwext4 for ext2/3/4 and FatFs for FAT or      */
-/* exFAT.  The session code (bifrost_engine.c, bfe_copy.c) calls these        */
-/* instead of lwext4's own file calls, so a walk written once serves both.    */
+/* kind (BFX_FsKind) that calls lwext4 for ext2/3/4, FatFs for FAT or exFAT   */
+/* and squashfuse for squashfs.  The session code (bifrost_engine.c,          */
+/* bfe_copy.c) calls these instead of lwext4's own file calls, so a walk      */
+/* written once serves every kind.                                            */
 /*                                                                            */
 /* Every function returns lwext4's errno-style result -- 0, or ENOENT,        */
 /* EEXIST, ENOSPC and the rest -- whichever library did the work, so a        */
@@ -17,7 +18,9 @@
 /*                                                                            */
 /* On a FAT session the reads and writes are FatFs's; the mode, owner and     */
 /* link calls are ENOTSUP (FAT has none), and the access and change times     */
-/* succeed doing nothing (FAT keeps only a modify time).                      */
+/* succeed doing nothing (FAT keeps only a modify time).  On a squashfs       */
+/* session the reads and the link read are squashfuse's (bfe_sqfs.c), and     */
+/* every change is EROFS -- squashfs cannot be written.                       */
 /*                                                                            */
 /* Internal to the engine: nothing here is exported from the DLL.  Every      */
 /* function is called with the engine's busy flag held.                       */
@@ -31,9 +34,9 @@
 #include <stdint.h>
 #include <stddef.h>
 
-/* An open image file, of either kind, named but not defined: bfe_fs.c   */
-/* holds what is inside, so the session files need neither library's     */
-/* file structure to hold one.                                           */
+/* An open image file, of any kind, named but not defined: bfe_fs.c    */
+/* holds what is inside, so the session files need no library's file   */
+/* structure to hold one.                                              */
 typedef struct BFS_File BFS_File;
 
 /*----------------------------------------------------------------------------*/

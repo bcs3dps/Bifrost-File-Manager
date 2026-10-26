@@ -76,7 +76,7 @@ namespace BifrostFM
         private static readonly string[] Abt_asFeatures =
         {
             "Browse ext2, ext3, ext4, FAT12, FAT16, FAT32 and exFAT images,",      // the image pane, File > Open > Image File / Device: lwext4 for ext, FatFs for FAT and exFAT
-            "    and real cards and sticks",                                       // the line above continues: the same filesystems on a device
+            "    squashfs read-only, and real cards and sticks",                   // the line above continues: squashfuse for squashfs, which is never written; the same filesystems on a device
             "Copy in and out, and drag and drop between the panes",                // Extract, Import, the clipboard and drags
             "Text, hex and picture viewers, and a structured editor",              // Open and Open As
             "    for JSON, INI and Klipper, Moonraker and KlipperScreen configs",  // the structured editor's formats (indented: the line above continues)
@@ -198,8 +198,9 @@ namespace BifrostFM
 
             /* What it is, in two lines (its line break is part of the text):   */
             /* every filesystem the engine opens -- ext2, ext3 and ext4         */
-            /* through lwext4, FAT and exFAT through FatFs -- and where.        */
-            Abt_lblDesc = Abt_NewLabel("A dual-pane file manager for the ext2, ext3, ext4, FAT and exFAT filesystems\r\n" +
+            /* through lwext4, squashfs through squashfuse, FAT and exFAT       */
+            /* through FatFs -- and where.                                      */
+            Abt_lblDesc = Abt_NewLabel("A dual-pane file manager for the ext2, ext3, ext4, squashfs, FAT and exFAT filesystems\r\n" +
                                        "in image files, and on real cards and sticks, from Windows.",
                                        Abt_Font(ABT_POINTS_BODY, FontStyle.Regular));
 
@@ -211,12 +212,13 @@ namespace BifrostFM
 
             /* The licence and the credits, small and grey: the program's own   */
             /* licence, then every open-source library built into the engine,   */
-            /* each with its holder and licence -- lwext4 and FatFs (the        */
-            /* filesystems), e2fsprogs (the check), and liblzma, zlib and       */
-            /* zstd (the compressed images).  lwext4's and zstd's BSD           */
-            /* licences ask for their notices in a binary distribution's        */
-            /* documentation (lwext4's source headers and zstd's LICENSE say    */
-            /* so), as e2fsprogs' GPL asks for its own; FatFs's, liblzma's      */
+            /* each with its holder and licence -- lwext4, FatFs and squashfuse */
+            /* (the filesystems), e2fsprogs (the check), and liblzma, zlib and  */
+            /* zstd (the compressed images).  lwext4's, squashfuse's and        */
+            /* zstd's BSD licences ask for their notices in a binary            */
+            /* distribution's documentation (lwext4's source headers and the    */
+            /* other two's LICENSE files say so), as e2fsprogs' GPL asks for    */
+            /* its own; FatFs's, liblzma's                                      */
             /* 0BSD and zlib's ask nothing of a binary (FatFs's LICENSE.txt     */
             /* says so in terms), and are named so the list is the whole of     */
             /* what the engine carries.  A library added to the engine is       */
@@ -224,7 +226,8 @@ namespace BifrostFM
             Abt_lblLicence = Abt_NewLabel("Copyright (c) 2026 B. C. Services.  Free software under the GNU General Public License,\r\n" +
                                           "version 2 or (at your option) any later version; it comes with ABSOLUTELY NO WARRANTY.\r\n" +
                                           "Filesystem access by the bundled lwext4 library, copyright (c) Grzegorz Kostka, BSD licence,\r\n" +
-                                          "and, for FAT and exFAT, by FatFs R0.16, copyright (c) ChaN, BSD-style licence.\r\n" +
+                                          "and, for FAT and exFAT, by FatFs R0.16, copyright (c) ChaN, BSD-style licence;\r\n" +
+                                          "and, for squashfs, by squashfuse 0.6.5, copyright (c) Dave Vasilevsky, BSD licence.\r\n" +
                                           "Filesystem check and repair by e2fsck, from e2fsprogs 1.47.4, copyright (c) Theodore Ts'o, GPL.\r\n" +
                                           "Compressed images by liblzma from XZ Utils 5.8.1, 0BSD licence; by zlib 1.3.1,\r\n" +
                                           "copyright (c) Jean-loup Gailly and Mark Adler, zlib licence; and by zstd 1.5.7,\r\n" +

@@ -1657,6 +1657,21 @@ namespace BifrostFM
             /* draft never follow a selection or folder change made since.    */
             bChange = objRequest.RQT_enmKind == KND_enmKind.Edit;
             objEdit = objRequest.RQT_objPayload as EDA_clsEditArgs;
+
+            /* Any edit on a filesystem nothing can write (squashfs) is     */
+            /* refused here, with the read-only notice, BEFORE its own      */
+            /* questions -- the name a New Folder or Rename asks, a         */
+            /* Delete's "for good?" -- so nothing is asked about a change   */
+            /* that cannot happen.                                          */
+            if (bChange)
+            {   /* An edit: the read-only test first. */
+                objResult = Sys_RefuseReadOnlyFilesystem(objRequest);
+                if (objResult.RSL_iStatus != SYS_OK)
+                {   /* Refused, the notice shown: no question, no edit. */
+                    return(objResult);
+                }
+            }
+
             if (bChange && objEdit != null &&
                 (objEdit.EDA_enmKind == EDK_enmEditKind.NameDirectory ||
                 objEdit.EDA_enmKind == EDK_enmEditKind.NameEntry))

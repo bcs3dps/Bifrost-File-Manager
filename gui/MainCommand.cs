@@ -2459,17 +2459,20 @@ namespace BifrostFM
             Main_tsmWriteDevice.Enabled = bLifecycle;
             Main_tsmPartition.Enabled = bLifecycle;
 
-            /* Check Filesystem as the open commands, but greyed while a FAT   */
-            /* or exFAT filesystem is open: with an image open the item        */
-            /* checks THAT image, and the check is e2fsprogs' e2fsck, which    */
-            /* reads only ext2/3/4 -- the program has no FAT check.  With      */
-            /* nothing open it stays offered (its pickers choose the place).   */
+            /* Check Filesystem as the open commands, but greyed while a FAT,   */
+            /* exFAT or squashfs filesystem is open: with an image open the     */
+            /* item checks THAT image, and the check is e2fsprogs' e2fsck,      */
+            /* which reads only ext2/3/4 -- the program has no other.  With     */
+            /* nothing open it stays offered (its pickers choose the place).    */
             Main_tsmCheckFs.Enabled = bLifecycle &&
-                !(objState.STV_enmMode == MOD_enmMode.Open && Main_OpenIsFat());
+                !(objState.STV_enmMode == MOD_enmMode.Open && (Main_OpenIsFat() || Main_OpenIsSquashfs()));
             Main_tsmCloseImage.Enabled = bImage;
             Main_tsbClose.Enabled = bImage;
-            Main_tsmEnableWrite.Enabled = bImage;
-            Main_tsbWrite.Enabled = bImage && !objState.STV_bWritable;
+
+            /* Enable Writing, and its toolbar button, never for squashfs,   */
+            /* which no reopen can make writable.                            */
+            Main_tsmEnableWrite.Enabled = bImage && !Main_OpenIsSquashfs();
+            Main_tsbWrite.Enabled = bImage && !objState.STV_bWritable && !Main_OpenIsSquashfs();
             Main_tsmFsProperties.Enabled = bImage;
             Main_tsmExit.Enabled = !objState.STV_bExiting;
 
@@ -2641,6 +2644,27 @@ namespace BifrostFM
                 Main_uiOpenVolumeType == ENG_clsNative.ENG_VOLTYPE_FAT16 ||
                 Main_uiOpenVolumeType == ENG_clsNative.ENG_VOLTYPE_FAT32 ||
                 Main_uiOpenVolumeType == ENG_clsNative.ENG_VOLTYPE_EXFAT);
+        }
+
+        /*------------------------------------------------------------------*/
+        /* Main_OpenIsSquashfs:                                             */
+        /*                                                                  */
+        /* Whether the filesystem open (or last open) is squashfs -- what   */
+        /* greys Enable Writing and Check Filesystem for it: squashfs can   */
+        /* never be written, and e2fsck cannot read it.  The value is the   */
+        /* engine's own, as Main_OpenIsFat's is, asked under the same rule. */
+        /*                                                                  */
+        /* Arguments:                                                       */
+        /*     None.                                                        */
+        /*                                                                  */
+        /* Returns:                                                         */
+        /*     bool : true for a squashfs open; false otherwise, or before  */
+        /*            any open's facts have been shown.                     */
+        /*------------------------------------------------------------------*/
+        private bool Main_OpenIsSquashfs()
+        {
+            /* The engine's one squashfs value. */
+            return(Main_uiOpenVolumeType == ENG_clsNative.ENG_VOLTYPE_SQUASHFS);
         }
 
         /*--------------------------------------------------------------------*/
@@ -4278,6 +4302,16 @@ namespace BifrostFM
             else
             {   /* Not ticked: Windows' own times (the copy's). */
                 objExtractOptions.EXO_uiSetTimes = 0U;
+            }
+
+            /* And whether a symbolic link is copied as what it names. */
+            if (Main_tsmOptFollowLinks.Checked)
+            {   /* Ticked: each link's target copied under the link's name. */
+                objExtractOptions.EXO_uiFollowLinks = 1U;
+            }
+            else
+            {   /* Not ticked: links skipped, as NTFS cannot hold them. */
+                objExtractOptions.EXO_uiFollowLinks = 0U;
             }
 
             /* The Import options: the defaults for what the Windows files   */
@@ -6396,7 +6430,7 @@ namespace BifrostFM
             /* The dialog's purpose (its filter) and caption: Open's unless   */
             /* the input is Check's.                                          */
             enmPurpose = WFP_enmPurpose.OpenImage;
-            sTitle = "Open an ext2 / ext3 / ext4, FAT or exFAT image file, or a disk image that holds partitions";
+            sTitle = "Open an ext2 / ext3 / ext4, squashfs, FAT or exFAT image file, or a disk image that holds partitions";
             if (objInput.ICV_objArgs.INA_enmKind == INK_enmInputKind.HostCheckImageFile)
             {   /* Check Filesystem: Open's filter, its own caption. */
                 sTitle = "Check the filesystem in an image file, or in a disk image that holds partitions";

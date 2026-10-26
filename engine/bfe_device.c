@@ -40,14 +40,6 @@
 /* This file's own interface: BFV_Target, BFV_Locks and the prototypes. */
 #include "bfe_device.h"
 
-/* The project's boolean pair, where windows.h has not already defined it. */
-#ifndef FALSE
-#define FALSE               0               // boolean false
-#endif
-#ifndef TRUE
-#define TRUE                (!FALSE)        // boolean true
-#endif
-
 /*----------------------------------------------------------------------------*/
 /* Definitions -- documentation table.                                        */
 /*----------------------------------------------------------------------------*/
@@ -77,9 +69,9 @@
 /*     pullDisk    : receives the size of the disk the handle is on.          */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : TRUE when the handle is a device and both facts are filled in.   */
+/*     bool : true when the handle is a device and both facts are filled in.  */
 /*----------------------------------------------------------------------------*/
-static int BFV_QueryGeometry(HANDLE hFile, uint32_t *puiSector, uint64_t *pullDisk)
+static bool BFV_QueryGeometry(HANDLE hFile, uint32_t *puiSector, uint64_t *pullDisk)
 {
     DISK_GEOMETRY_EX geometry;
     DWORD            dwBytes;
@@ -88,16 +80,18 @@ static int BFV_QueryGeometry(HANDLE hFile, uint32_t *puiSector, uint64_t *pullDi
     memset(&geometry, 0, sizeof(geometry));
     dwBytes = 0;
 
-    /* Ask; a file fails here, which is the test. */
+    /* Ask; a file fails here, which is the test.                     */
+    /* The Windows BOOL the call below answers is tested in its own   */
+    /* form, on purpose -- not as the engine's bool.                  */
     if (!DeviceIoControl(hFile, IOCTL_DISK_GET_DRIVE_GEOMETRY_EX, NULL, 0,
                          &geometry, sizeof(geometry), &dwBytes, NULL))
     {   /* Not a disk or a volume: a file, a pipe, something else. */
-        return(FALSE);
+        return(false);
     }
 
     if (geometry.Geometry.BytesPerSector == 0)
     {   /* A device that reports no sector size cannot be driven. */
-        return(FALSE);
+        return(false);
     }
 
     /* Hand back the two facts the caller needs. */
@@ -105,7 +99,7 @@ static int BFV_QueryGeometry(HANDLE hFile, uint32_t *puiSector, uint64_t *pullDi
     *pullDisk  = (uint64_t)geometry.DiskSize.QuadPart;
 
     /* A device, with its geometry known. */
-    return(TRUE);
+    return(true);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -121,9 +115,9 @@ static int BFV_QueryGeometry(HANDLE hFile, uint32_t *puiSector, uint64_t *pullDi
 /*     pullLength : receives the length in bytes.                             */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : TRUE when the length was answered.                               */
+/*     bool : true when the length was answered.                              */
 /*----------------------------------------------------------------------------*/
-static int BFV_QueryLength(HANDLE hFile, uint64_t *pullLength)
+static bool BFV_QueryLength(HANDLE hFile, uint64_t *pullLength)
 {
     GET_LENGTH_INFORMATION length;
     DWORD                  dwBytes;
@@ -132,18 +126,20 @@ static int BFV_QueryLength(HANDLE hFile, uint64_t *pullLength)
     memset(&length, 0, sizeof(length));
     dwBytes = 0;
 
-    /* Ask for the length of exactly what the handle names. */
+    /* Ask for the length of exactly what the handle names.           */
+    /* The Windows BOOL the call below answers is tested in its own   */
+    /* form, on purpose -- not as the engine's bool.                  */
     if (!DeviceIoControl(hFile, IOCTL_DISK_GET_LENGTH_INFO, NULL, 0,
                          &length, sizeof(length), &dwBytes, NULL))
     {   /* Refused -- access denied when not elevated, or not a disk device. */
-        return(FALSE);
+        return(false);
     }
 
     /* Hand it back. */
     *pullLength = (uint64_t)length.Length.QuadPart;
 
     /* The length of exactly what was opened. */
-    return(TRUE);
+    return(true);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -171,7 +167,9 @@ static uint32_t BFV_QueryDiskNumber(HANDLE hFile)
     memset(&number, 0, sizeof(number));
     dwBytes = 0;
 
-    /* Ask which device, of which type, the handle is. */
+    /* Ask which device, of which type, the handle is.                */
+    /* The Windows BOOL the call below answers is tested in its own   */
+    /* form, on purpose -- not as the engine's bool.                  */
     if (!DeviceIoControl(hFile, IOCTL_STORAGE_GET_DEVICE_NUMBER, NULL, 0,
                          &number, sizeof(number), &dwBytes, NULL))
     {   /* Not a storage device. */
@@ -299,6 +297,8 @@ static void BFV_QueryModel(HANDLE hFile, BFV_Target *pTarget)
     query.QueryType  = PropertyStandardQuery;
     dwBytes          = 0;
 
+    /* The Windows BOOL the call below answers is tested in its own   */
+    /* form, on purpose -- not as the engine's bool.                  */
     if (!DeviceIoControl(hFile, IOCTL_STORAGE_QUERY_PROPERTY, &query, sizeof(query),
                          abBuffer, sizeof(abBuffer), &dwBytes, NULL))
     {   /* No descriptor: the facts stay unknown. */
@@ -425,6 +425,8 @@ int BFV_Open(const wchar_t *pwszPath, int iAccess, BFV_Target *pTarget)
         /* The file's size. */
         liSize.QuadPart = 0;
 
+        /* The Windows BOOL the call below answers is tested in its own   */
+        /* form, on purpose -- not as the engine's bool.                  */
         if (!GetFileSizeEx(hFile, &liSize))
         {   /* Not something with a size -- a pipe, a console. */
 
@@ -436,7 +438,9 @@ int BFV_Open(const wchar_t *pwszPath, int iAccess, BFV_Target *pTarget)
         }
 
         if (iAccess == BFV_ACCESS_CREATE)
-        {   /* Made anew: whatever was there is cut to nothing. */
+        {   /* Made anew: whatever was there is cut to nothing.               */
+            /* The Windows BOOL the call below answers is tested in its own   */
+            /* form, on purpose -- not as the engine's bool.                  */
             if (!SetEndOfFile(hFile))
             {   /* The file could not be truncated. */
 
@@ -455,7 +459,7 @@ int BFV_Open(const wchar_t *pwszPath, int iAccess, BFV_Target *pTarget)
         pTarget->ullSize   = (uint64_t)liSize.QuadPart;
         pTarget->uiSector  = BFV_FILE_SECTOR;
         pTarget->uiDisk    = BFV_NO_DISK;
-        pTarget->bDevice   = FALSE;
+        pTarget->bDevice   = false;
         pTarget->bWritable = (iAccess == BFV_ACCESS_WRITE || iAccess == BFV_ACCESS_CREATE || iAccess == BFV_ACCESS_OPENKEEP);
 
         if (iAccess == BFV_ACCESS_QUERY)
@@ -490,7 +494,7 @@ int BFV_Open(const wchar_t *pwszPath, int iAccess, BFV_Target *pTarget)
     pTarget->ullSize   = ullLength;
     pTarget->uiSector  = uiSector;
     pTarget->uiDisk    = BFV_QueryDiskNumber(hFile);
-    pTarget->bDevice   = TRUE;
+    pTarget->bDevice   = true;
     pTarget->bWritable = (iAccess == BFV_ACCESS_WRITE || iAccess == BFV_ACCESS_CREATE || iAccess == BFV_ACCESS_OPENKEEP);
     BFV_QueryModel(hFile, pTarget);
     CloseHandle(hFile);
@@ -606,6 +610,8 @@ static int BFV_Seek(BFV_Target *pTarget, uint64_t ullOffset)
     /* engine uses is far below 2^63, so the conversion cannot go negative.   */
     liOffset.QuadPart = (LONGLONG)ullOffset;
 
+    /* The Windows BOOL the call below answers is tested in its own   */
+    /* form, on purpose -- not as the engine's bool.                  */
     if (!SetFilePointerEx(pTarget->hFile, liOffset, NULL, FILE_BEGIN))
     {   /* Beyond what the handle can address. */
         return((int)GetLastError());
@@ -667,6 +673,8 @@ int BFV_Read(BFV_Target *pTarget, uint64_t ullOffset, void *pvBuffer, uint32_t c
 
     dwRead = 0;
 
+    /* The Windows BOOL the call below answers is tested in its own   */
+    /* form, on purpose -- not as the engine's bool.                  */
     if (!ReadFile(pTarget->hFile, pvBuffer, cbBytes, &dwRead, NULL))
     {   /* The media failed, or the device went away. */
         return((int)GetLastError());
@@ -745,6 +753,8 @@ int BFV_Write(BFV_Target *pTarget, uint64_t ullOffset, const void *pvBuffer, uin
 
     dwWritten = 0;
 
+    /* The Windows BOOL the call below answers is tested in its own   */
+    /* form, on purpose -- not as the engine's bool.                  */
     if (!WriteFile(pTarget->hFile, pvBuffer, cbBytes, &dwWritten, NULL))
     {   /* The media refused, the disk is full, or the device went away. */
         return((int)GetLastError());
@@ -788,6 +798,8 @@ int BFV_Flush(BFV_Target *pTarget)
         return(0);
     }
 
+    /* The Windows BOOL the call below answers is tested in its own   */
+    /* form, on purpose -- not as the engine's bool.                  */
     if (!FlushFileBuffers(pTarget->hFile))
     {   /* The media did not confirm the write. */
         return((int)GetLastError());
@@ -825,6 +837,8 @@ int BFV_Truncate(BFV_Target *pTarget)
     /* To the start, then end the file there. */
     liStart.QuadPart = 0;
 
+    /* The Windows BOOL each call below answers is tested in its own   */
+    /* form, on purpose -- not as the engine's bool.                   */
     if (!SetFilePointerEx(pTarget->hFile, liStart, NULL, FILE_BEGIN) || !SetEndOfFile(pTarget->hFile))
     {   /* The file could not be cut: Windows' reason. */
         return((int)GetLastError());
@@ -844,7 +858,7 @@ int BFV_Truncate(BFV_Target *pTarget)
 /* (\\.\PhysicalDriveN and every volume on it).  Two devices are the same     */
 /* when they sit on one physical disk, the unit a write can damage; a file    */
 /* and a device never are.  Two files that cannot be told apart are taken to  */
-/* be the same, so a caller refusing on TRUE refuses rather than risks it.    */
+/* be the same, so a caller refusing on true refuses rather than risks it.    */
 /* Its callers: BFD_TargetIsObject (the raw writers' test against the open    */
 /* session) and BFE_CopyRaw's source-is-destination test.                     */
 /*                                                                            */
@@ -853,17 +867,17 @@ int BFV_Truncate(BFV_Target *pTarget)
 /*     pSecond : the other.                                                   */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : TRUE when they are (or may be) the same; FALSE when they are     */
-/*           known to differ.                                                 */
+/*     bool : true when they are (or may be) the same; false when they are    */
+/*            known to differ.                                                */
 /*----------------------------------------------------------------------------*/
-int BFV_SameObject(const BFV_Target *pFirst, const BFV_Target *pSecond)
+bool BFV_SameObject(const BFV_Target *pFirst, const BFV_Target *pSecond)
 {
     BY_HANDLE_FILE_INFORMATION infoFirst;
     BY_HANDLE_FILE_INFORMATION infoSecond;
 
     if (pFirst->bDevice != pSecond->bDevice)
     {   /* A file and a device: different things. */
-        return(FALSE);
+        return(false);
     }
 
     if (pFirst->bDevice)
@@ -880,15 +894,17 @@ int BFV_SameObject(const BFV_Target *pFirst, const BFV_Target *pSecond)
         /* session's target, or a raw copy's source -- would have to be a      */
         /* VOLUME path, which the program never passes (its devices are        */
         /* whole disks, \\.\PhysicalDriveN, which always report a number).     */
-        /* A caller that did would want TRUE when EITHER number is unknown.    */
+        /* A caller that did would want true when EITHER number is unknown.    */
         return(pFirst->uiDisk == pSecond->uiDisk);
     }
 
+    /* The Windows BOOL each call below answers is tested in its own   */
+    /* form, on purpose -- not as the engine's bool.                   */
     if (!GetFileInformationByHandle(pFirst->hFile, &infoFirst) ||
         !GetFileInformationByHandle(pSecond->hFile, &infoSecond))
     {   /* Two files, one of which will not say what it is: treated as the   */
         /* same, so the caller refuses rather than guesses.                  */
-        return(TRUE);
+        return(true);
     }
 
     /* Two files: the same when their volume serial number and file index    */
@@ -965,6 +981,8 @@ static uint32_t BFV_FirstExtentDisk(HANDLE hVolume)
 
     /* One extent fits the fixed structure; ERROR_MORE_DATA still fills the   */
     /* first extent, which is all this needs.                                 */
+    /* The Windows BOOL the call below answers is tested in its own           */
+    /* form, on purpose -- not as the engine's bool.                          */
     if (!DeviceIoControl(hVolume, IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS, NULL, 0,
                          &extents, sizeof(extents), &dwBytes, NULL))
     {   /* Refused outright, unless it is only saying there were more. */
@@ -1089,6 +1107,8 @@ static int BFV_VolumeOnDisk(HANDLE hVolume, uint32_t uiDisk, DWORD *pdwError)
     memset(pExtents, 0, cbBuffer);
     dwBytes = 0;
 
+    /* The Windows BOOL the call below answers is tested in its own   */
+    /* form, on purpose -- not as the engine's bool.                  */
     if (!DeviceIoControl(hVolume, IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS, NULL, 0,
                          pExtents, cbBuffer, &dwBytes, NULL))
     {   /* Too small, or refused.  The error is taken at once, before the   */
@@ -1137,6 +1157,8 @@ static int BFV_VolumeOnDisk(HANDLE hVolume, uint32_t uiDisk, DWORD *pdwError)
         /* Ask again, into the bigger cleared buffer. */
         memset(pExtents, 0, cbBuffer);
 
+        /* The Windows BOOL the call below answers is tested in its own   */
+        /* form, on purpose -- not as the engine's bool.                  */
         if (!DeviceIoControl(hVolume, IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS, NULL, 0,
                              pExtents, cbBuffer, &dwBytes, NULL))
         {   /* Refused the second time, though it answered the first: not   */
@@ -1251,7 +1273,7 @@ int BFV_LockDisk(uint32_t uiDisk, BFV_Locks *pLocks)
     DWORD   dwBytes;
     DWORD   dwError;
     size_t  cchVolume;
-    int     bMore;
+    bool    bMore;
     int     iWhere;
 
     /* No volume held yet and no failure recorded; then the first volume    */
@@ -1277,7 +1299,7 @@ int BFV_LockDisk(uint32_t uiDisk, BFV_Locks *pLocks)
     }
 
     /* The first volume is in hand; the loop takes the rest in turn. */
-    bMore = TRUE;
+    bMore = true;
 
     while (bMore)
     {   /* One volume GUID path per iteration. */
@@ -1383,6 +1405,8 @@ int BFV_LockDisk(uint32_t uiDisk, BFV_Locks *pLocks)
             /* Lock it: refused while anything else has it open. */
             dwBytes = 0;
 
+            /* The Windows BOOL the call below answers is tested in its own   */
+            /* form, on purpose -- not as the engine's bool.                  */
             if (!DeviceIoControl(hVolume, FSCTL_LOCK_VOLUME, NULL, 0, NULL, 0, &dwBytes, NULL))
             {   /* Something has files open on it: the user must close them. */
 
@@ -1412,8 +1436,10 @@ int BFV_LockDisk(uint32_t uiDisk, BFV_Locks *pLocks)
         /* A volume elsewhere needs nothing more: its query handle is   */
         /* already closed, and it is not ours to touch.                 */
 
-        /* The next volume, into a cleared buffer; FALSE ends the loop. */
+        /* The next volume, into a cleared buffer; false ends the loop. */
         memset(wszVolume, 0, sizeof(wszVolume));
+        /* FindNextVolumeW answers a Windows BOOL -- its own form, on purpose --   */
+        /* and bMore takes it as the engine's bool: any non-zero is true.          */
         bMore = FindNextVolumeW(hFind, wszVolume, BFV_VOLUME_PATH_MAX);
 
         if (!bMore)

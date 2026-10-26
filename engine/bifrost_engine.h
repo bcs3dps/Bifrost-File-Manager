@@ -7,9 +7,10 @@
 /* The public interface of the BifrostFM engine: a C library, built as        */
 /* bifrost_engine.dll, that opens a filesystem in userspace -- ext2, ext3     */
 /* or ext4 through the bundled lwext4 library, FAT12, FAT16, FAT32 or exFAT   */
-/* through the bundled FatFs -- in an image FILE or on a real DEVICE, whole   */
-/* or one partition of it, and lets a caller browse it, edit it, and copy     */
-/* files and trees between it and the Windows filesystem; and, beside the     */
+/* through the bundled FatFs, squashfs (read-only) through the bundled        */
+/* squashfuse -- in an image FILE or on a real DEVICE, whole or one           */
+/* partition of it, and lets a caller browse it, edit it, and copy files and  */
+/* trees between it and the Windows filesystem; and, beside the               */
 /* session, the whole-device work: a device's facts, raw reads and writes,    */
 /* the raw copy that images a device to a file and back (plain or             */
 /* compressed), making a filesystem, checking and repairing an ext one        */
@@ -76,7 +77,7 @@ extern "C" {
 /*----------------------------------------------------------------------------*/
 /* Version -- documentation table.                                            */
 /*----------------------------------------------------------------------------*/
-#define BFE_API_VERSION         18       // bumped whenever a function is added, or a signature, structure layout or event set changes (2: BFE_MakeFs; 3: BFE_CopyWithin; 4: devices -- BFE_DeviceInfoGet, BFE_ReadRaw, BFE_CopyRaw, and BFE_Open taking a device path; 5: BFE_CheckFs; 6: BFE_MakeFsAt; 7: BFE_WriteRaw; 8: BFE_MakeFsAt's zero-fill flag and progress callback; 9: BFE_ResizeFs; 10: compressed images -- BFE_ImageInfoGet, BFE_RAW_DECOMPRESS, BFE_RAW_XZ_OUT; 11: device write read-back -- BFE_SetWriteVerify, BFE_TestCapacity; 12: the manifest's name taken by data -- BFE_EVENT_MANIFEST_CLASH, BFE_EVENT_NOT_MANIFEST, BFE_REPLY_KEEP_FILE, BFE_REPLY_KEEP_MANIFEST; 13: BFE_WriteRawBatch and its 24-byte BFE_RawPiece; 14: BFE_CopyRaw's BFE_RAW_IN_PLACE and BFE_RAW_ZERO_SOURCE, for one partition's read, write and erase; 15: FAT and exFAT -- BFE_Open mounting them, BFE_MakeFs / MakeFsAt making them (BFE_FSTYPE_FAT16 / FAT32 / EXFAT), BFE_VolumeInfo's uiVolumeType (88 bytes) and BFE_Entry's uiAttributes (312 bytes); 16: BFE_NAME_BYTES 768, so a FAT long name is listed whole (BFE_Entry 824 bytes); 17: BFE_RemoveTree's progress callback and cancel; 18: BFE_VOLUME_NAME_BYTES 40, so every label any type holds fits -- BFE_MakeFsOptions 64 bytes, BFE_VolumeInfo 104)
+#define BFE_API_VERSION         20       // bumped whenever a function is added, or a signature, structure layout or event set changes (2: BFE_MakeFs; 3: BFE_CopyWithin; 4: devices -- BFE_DeviceInfoGet, BFE_ReadRaw, BFE_CopyRaw, and BFE_Open taking a device path; 5: BFE_CheckFs; 6: BFE_MakeFsAt; 7: BFE_WriteRaw; 8: BFE_MakeFsAt's zero-fill flag and progress callback; 9: BFE_ResizeFs; 10: compressed images -- BFE_ImageInfoGet, BFE_RAW_DECOMPRESS, BFE_RAW_XZ_OUT; 11: device write read-back -- BFE_SetWriteVerify, BFE_TestCapacity; 12: the manifest's name taken by data -- BFE_EVENT_MANIFEST_CLASH, BFE_EVENT_NOT_MANIFEST, BFE_REPLY_KEEP_FILE, BFE_REPLY_KEEP_MANIFEST; 13: BFE_WriteRawBatch and its 24-byte BFE_RawPiece; 14: BFE_CopyRaw's BFE_RAW_IN_PLACE and BFE_RAW_ZERO_SOURCE, for one partition's read, write and erase; 15: FAT and exFAT -- BFE_Open mounting them, BFE_MakeFs / MakeFsAt making them (BFE_FSTYPE_FAT16 / FAT32 / EXFAT), BFE_VolumeInfo's uiVolumeType (88 bytes) and BFE_Entry's uiAttributes (312 bytes); 16: BFE_NAME_BYTES 768, so a FAT long name is listed whole (BFE_Entry 824 bytes); 17: BFE_RemoveTree's progress callback and cancel; 18: BFE_VOLUME_NAME_BYTES 40, so every label any type holds fits -- BFE_MakeFsOptions 64 bytes, BFE_VolumeInfo 104; 19: squashfs -- BFE_Open mounting it read-only, BFE_VOLTYPE_SQUASHFS; 20: BFE_Extract following symbolic links -- BFE_ExtractOptions.bFollowLinks (16 bytes), BFE_ERR_LINK_LOOP)
 
 /*----------------------------------------------------------------------------*/
 /* Volume types -- documentation table.  BFE_VolumeInfo.uiVolumeType carries  */
@@ -88,6 +89,7 @@ extern "C" {
 #define BFE_VOLTYPE_FAT16       16       // FAT16 (FatFs)
 #define BFE_VOLTYPE_FAT32       32       // FAT32 (FatFs)
 #define BFE_VOLTYPE_EXFAT       64       // exFAT (FatFs)
+#define BFE_VOLTYPE_SQUASHFS    128      // squashfs 4.0 (squashfuse); always read-only
 
 /*----------------------------------------------------------------------------*/
 /* FAT attributes -- documentation table.  BFE_Entry.uiAttributes carries     */
@@ -110,9 +112,9 @@ extern "C" {
 #define BFE_ERR_BUSY            4        // another engine call is still running
 #define BFE_ERR_NO_MEMORY       5        // an allocation failed -- in a copy (BFE_Extract, BFE_Import, BFE_CopyWithin) it STOPS the whole copy at that item: its ERROR event first, then the call returns this
 #define BFE_ERR_IMAGE_OPEN      6        // the file or device path could not be opened (missing, in use, read-only, or a device without Administrator); the text gives the Windows error.  A range outside the target is reported otherwise: BFE_ERR_MOUNT from BFE_Open, BFE_ERR_ARG / BFE_ERR_IO_IMAGE from the raw and format calls
-#define BFE_ERR_MOUNT           7        // not an ext2/3/4 filesystem (or its superblock is damaged), nor a FAT or exFAT one
+#define BFE_ERR_MOUNT           7        // not an ext2/3/4 filesystem (or its superblock is damaged), nor a squashfs, FAT or exFAT one -- or a squashfs whose superblock or tables are damaged
 #define BFE_ERR_JOURNAL         8        // the journal could not be started for a writable session -- or a flush could not checkpoint or restart it, after which the session refuses every change with this code and BFE_Close reports it again
-#define BFE_ERR_READ_ONLY       9        // a modifying call on a read-only session
+#define BFE_ERR_READ_ONLY       9        // a modifying call on a read-only session (every squashfs session is one), or a writable BFE_Open of what can only be read
 #define BFE_ERR_NOT_FOUND       10       // the path does not exist
 #define BFE_ERR_EXISTS          11       // the destination name is already taken
 #define BFE_ERR_NOT_DIR         12       // a directory was required and the path is something else
@@ -131,7 +133,8 @@ extern "C" {
 #define BFE_ERR_VOLUME_LOCK     25       // the disk about to be written could not be locked: a volume on it in use (something has files open on it), or a volume whose disk could not be told; the detail line says which, naming the volume
 #define BFE_ERR_VERIFY          26       // what was read back differs from what was written: BFE_CopyRaw with BFE_RAW_VERIFY, or a device that did not keep a filesystem write (a format, a resize, a repair, or a session with BFE_SetWriteVerify on) -- a failing or counterfeit card
 #define BFE_ERR_NEEDS_CHECK     27       // BFE_ResizeFs: the filesystem must be checked first (BFE_CheckFs, a repair if it finds anything): errors recorded, not cleanly unmounted, used since its last check, impossible free counts, or orphans or a journal to replay
-#define BFE_ERR_UNSUPPORTED     28       // something this build does not handle: on a FAT or exFAT session, a call FAT has no place for (modes, owners, links -- see BFE_Open); from BFE_ResizeFs, a filesystem it will not resize (bigalloc) or a new size it cannot express (too many blocks without 64bit, too many group descriptors without meta_bg); from the compressed-image reader (BFE_CopyRaw, BFE_ImageInfoGet), a zip method other than stored / deflate, or .xz headers or a filter this liblzma lacks
+#define BFE_ERR_UNSUPPORTED     28       // something this build does not handle: on a FAT or exFAT session, a call FAT has no place for (modes, owners, links -- see BFE_Open); from BFE_Open, a squashfs of a version other than 4.0 or a compression this build does not read (lz4, lzo); from BFE_ResizeFs, a filesystem it will not resize (bigalloc) or a new size it cannot express (too many blocks without 64bit, too many group descriptors without meta_bg); from the compressed-image reader (BFE_CopyRaw, BFE_ImageInfoGet), a zip method other than stored / deflate, or .xz headers or a filter this liblzma lacks
+#define BFE_ERR_LINK_LOOP       29       // BFE_Extract following links (BFE_ExtractOptions.bFollowLinks): a link that leads back into a folder the copy is already inside, or a chain of more than BFE_LINK_HOPS_MAX links -- the link is SKIPPED with this status and the copy goes on
 
 /*----------------------------------------------------------------------------*/
 /* Entry types -- documentation table.  BFE_Entry.uiType and                  */
@@ -188,6 +191,7 @@ extern "C" {
 #define BFE_NAME_BYTES          768     // BFE_Entry.szName: the longest name either kind holds -- a FAT or exFAT long name of 255 UTF-16 units, 765 bytes of UTF-8 (an ext4 name is at most 255 bytes) -- plus the NUL, padded to 8
 #define BFE_VOLUME_NAME_BYTES   40      // BFE_VolumeInfo.szVolumeName, BFE_MakeFsOptions.szLabel: the longest label any type holds -- an exFAT one of 11 UTF-16 units, or a FAT one of 11 code page 437 characters, up to 33 bytes of UTF-8 (an ext label is at most 16) -- plus the NUL, padded to 8
 #define BFE_WRITE_BATCH_MAX_PIECES 128  // the most pieces BFE_WriteRawBatch takes: it tests every pair for overlap, so the count is bounded (a partition table is a handful)
+#define BFE_LINK_HOPS_MAX       40      // BFE_Extract following links: the most links one target is resolved through (each link met on the way, at any level of its path, counts one), as Linux's own limit is -- past it the link is BFE_ERR_LINK_LOOP
 
 /*----------------------------------------------------------------------------*/
 /* Filesystem types for BFE_MakeFs -- documentation table.  None of the three */
@@ -229,7 +233,7 @@ extern "C" {
 /* numbering, not two that map.                                               */
 /*----------------------------------------------------------------------------*/
 #define BFE_IMAGE_RAW           0                      // not one of the formats below: the file's bytes ARE the image (a device is always this)
-#define BFE_IMAGE_XZ            1                      // .xz: FD 37 7A 58 5A 00; one or more streams, LZMA2 only
+#define BFE_IMAGE_XZ            1                      // .xz: FD 37 7A 58 5A 00; one or more streams, LZMA2 with or without a BCJ filter
 #define BFE_IMAGE_GZIP          2                      // .gz: 1F 8B; one or more members
 #define BFE_IMAGE_ZSTD          3                      // .zst: 28 B5 2F FD; one or more frames
 #define BFE_IMAGE_ZIP           4                      // .zip: 50 4B 03 04; the archive's FIRST file is the image, stored or deflated (ZIP64 sizes read)
@@ -367,7 +371,9 @@ typedef struct BFE_MakeFsOptions
 /* needs.  Filled by BFE_Stat and handed to the BFE_ListDir callback.         */
 /* 824 bytes, no padding.  The field notes are ext2/3/4's; on a FAT or exFAT  */
 /* session the facts FAT does not keep are made up, as BFE_Open says (the     */
-/* type from FAT's directory bit, inode 0, owner 0, one link, one time).      */
+/* type from FAT's directory bit, inode 0, owner 0, one link, one time); a    */
+/* squashfs session's are its inodes' own, its one time (the modify time) in  */
+/* all three time fields.                                                     */
 /*----------------------------------------------------------------------------*/
 typedef struct BFE_Entry
 {
@@ -405,7 +411,7 @@ typedef struct BFE_VolumeInfo
     uint32_t bDirIndex;                            // 1 when dir_index is on (hashed directory lookups)
     uint32_t bReadOnly;                            // 1 when this session was opened read-only
     uint32_t bExternalJournal;                     // 1 when the journal is on another device (has_journal, no journal inode): BFE_Open refuses such a filesystem for writing (BFE_ERR_JOURNAL), read-only works; reserved and always 0 before
-    uint32_t uiVolumeType;                         // BFE_VOLTYPE_*: ext2/3/4, FAT12, FAT16, FAT32 or exFAT
+    uint32_t uiVolumeType;                         // BFE_VOLTYPE_*: ext2/3/4, FAT12, FAT16, FAT32, exFAT or squashfs
     uint32_t uiReserved;                           // always 0; keeps the label on an 8-byte boundary, the layout explicit
     char     szVolumeName[BFE_VOLUME_NAME_BYTES];  // the volume label, NUL-terminated ("" when unset)
 } BFE_VolumeInfo;
@@ -431,12 +437,15 @@ typedef struct BFE_CopyEvent
 } BFE_CopyEvent;
 
 /*----------------------------------------------------------------------------*/
-/* BFE_ExtractOptions -- how BFE_Extract treats metadata.  8 bytes.           */
+/* BFE_ExtractOptions -- how BFE_Extract treats metadata and symbolic links.  */
+/* 16 bytes, no padding.                                                      */
 /*----------------------------------------------------------------------------*/
 typedef struct BFE_ExtractOptions
 {
     uint32_t bWriteManifest;             // 1: record the Unix metadata NTFS cannot hold (a tree: <hostdir>\_ext4meta.txt; one file: <hostfile>.ext4meta)
     uint32_t bSetTimes;                  // 1: set each extracted FILE's access / modify times from its inode
+    uint32_t bFollowLinks;               // 1: copy what each symbolic link points to, under the link's name, instead of skipping the link (see BFE_Extract); 0: links skipped, as before
+    uint32_t uiReserved;                 // set to 0 (not read); makes the 16-byte layout explicit
 } BFE_ExtractOptions;
 
 /*----------------------------------------------------------------------------*/
@@ -526,6 +535,15 @@ typedef int (*BFE_CopyCallback)(const BFE_CopyEvent *pEvent, void *pvContext);
 /*                     its one time -- FAT's local modify time, turned into    */
 /*                     UTC through the host's zone -- in all three time        */
 /*                     fields.                                                 */
+/*                     A range that begins with a squashfs magic is mounted as */
+/*                     squashfs (squashfuse, version 4.0; gzip, xz, lzma and   */
+/*                     zstd compression), READ-ONLY ONLY: a writable open is   */
+/*                     BFE_ERR_READ_ONLY, and so is every modifying call of    */
+/*                     its session.  It keeps Unix facts as ext2/3/4 does --   */
+/*                     modes, owners, links, device nodes -- with one time,    */
+/*                     its modify time, in all three time fields.  Another     */
+/*                     version or a compression this build lacks (lz4, lzo)    */
+/*                     is BFE_ERR_UNSUPPORTED; a damaged one BFE_ERR_MOUNT.    */
 /* BFE_Close         : flush and close the image.                              */
 /* BFE_Flush         : commit everything a writable session has changed to     */
 /*                     the image or device now, so a crash after it loses      */
@@ -542,7 +560,10 @@ typedef int (*BFE_CopyCallback)(const BFE_CopyEvent *pEvent, void *pvContext);
 /*                     blocks are the clusters (the block size the cluster's   */
 /*                     bytes), the inode counts and the feature words and      */
 /*                     flags are 0, and the volume's label is given whole (the */
-/*                     field holds the longest label any type keeps).          */
+/*                     field holds the longest label any type keeps).  On a    */
+/*                     squashfs session the blocks are the image's used bytes  */
+/*                     in its block size, the inode count its own, nothing     */
+/*                     free, no label, no feature words, and bReadOnly 1.      */
 /* BFE_LastErrorText : copy the last failure's detail line (UTF-8) into the    */
 /*                     caller's buffer; BFE_ERR_BUFFER if it does not fit.     */
 /* BFE_MakeFs        : create a NEW image file of the given size holding an    */
@@ -674,7 +695,8 @@ BFE_API int BFE_SymLink(const char *pszTarget, const char *pszImageLink);
 /* BFE_Extract : copy pszImagePath OUT to pwszHostPath, which names the       */
 /*               destination ITEM itself, not the folder to put it in.  File  */
 /*               bytes are exact.  A symlink, device, fifo or socket cannot   */
-/*               exist on NTFS and is SKIPPED (and recorded in the manifest), */
+/*               exist on NTFS and is SKIPPED (and recorded in the manifest)  */
+/*               -- a symlink unless links are followed (below) --,           */
 /*               as is a name Windows cannot hold.  Extract works on a        */
 /*               read-only session.  A manifest is written under a temporary  */
 /*               name beside its final one and renamed into place only once   */
@@ -688,6 +710,25 @@ BFE_API int BFE_SymLink(const char *pszTarget, const char *pszImageLink);
 /*               is written, whatever the options say (FAT has no Unix facts  */
 /*               to record), so no clash is asked either; bSetTimes still     */
 /*               stamps each file with its FAT time.                          */
+/*               FOLLOWING LINKS (bFollowLinks): a symbolic link -- the top   */
+/*               item or one met in the walk -- is copied as what it points   */
+/*               to, under the link's own name: a file's bytes, or a folder   */
+/*               and everything under it, the data duplicated where several   */
+/*               links reach it.  The target is resolved inside the open      */
+/*               filesystem as Linux would: an absolute target from its root, */
+/*               a relative one from the link's folder, every folder on the   */
+/*               way that is itself a link followed too, ".." at the root     */
+/*               staying there, at most BFE_LINK_HOPS_MAX links in all.  A    */
+/*               target not in this filesystem (missing, or another mount's   */
+/*               such as /proc) is SKIPPED, BFE_ERR_NOT_FOUND (or NOT_DIR); a */
+/*               folder target the copy is already inside, or too long a      */
+/*               chain, is SKIPPED, BFE_ERR_LINK_LOOP; the copy goes on       */
+/*               either way.  The manifest records a followed link as its     */
+/*               target's facts under the link's path -- a file or a folder,  */
+/*               so an import gives a real file, not a link -- and a skipped  */
+/*               one as the link it is.  The events name the TARGET's image   */
+/*               paths for what is copied, the link's for a skip.  FAT has    */
+/*               no links, so the option changes nothing there.               */
 /* BFE_Import  : copy pwszHostPath IN to pszImagePath, which likewise names   */
 /*               the destination item.  A host symbolic link is followed.     */
 /*               A tree's _ext4meta.txt is its manifest only when its first   */

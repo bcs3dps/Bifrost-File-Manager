@@ -77,20 +77,20 @@ struct BFZ_Reader
     uint8_t       *pbIn;         // the input buffer, BFZ_IN_BUFFER bytes
     uint32_t       cbIn;         // bytes in pbIn
     uint32_t       offIn;        // the first of them not yet used
-    int            bInEof;       // the file (or the zip entry) has no more bytes
-    int            bDone;        // the compressed data has ended: reads return 0 bytes
+    bool           bInEof;       // the file (or the zip entry) has no more bytes
+    bool           bDone;        // the compressed data has ended: reads return 0 bytes
     uint64_t       ullZipLeft;   // zip: bytes of the entry's data not yet read from the file
     int            iZipMethod;   // zip: 0 stored, 8 deflate
     uint32_t       uiZipCrc;     // zip: the entry's CRC-32, as its central directory header records it
     uint32_t       uiZipCrcRun;  // zip: the CRC-32 of every image byte delivered so far
     uint64_t       ullZipOut;    // zip: image bytes delivered so far
-    int            bZipInflated; // zip, deflate: inflate has reported the end of the entry's data
-    int            bZipChecked;  // zip: the entry's end has been reached and its size and CRC-32 judged good
+    bool           bZipInflated; // zip, deflate: inflate has reported the end of the entry's data
+    bool           bZipChecked;  // zip: the entry's end has been reached and its size and CRC-32 judged good
     lzma_stream    xz;           // BFZ_KIND_XZ
     z_stream       gz;           // BFZ_KIND_GZIP, and a deflated zip entry
-    int            bGzOpen;      // gz holds inflate state to free
+    bool           bGzOpen;      // gz holds inflate state to free
     ZSTD_DStream  *pZstd;        // BFZ_KIND_ZSTD
-    int            bZstdOpen;    // zstd: the last call that made progress left a frame unfinished
+    bool           bZstdOpen;    // zstd: the last call that made progress left a frame unfinished
 };
 
 /*----------------------------------------------------------------------------*/
@@ -189,6 +189,8 @@ static int Bfz_ReadAt(HANDLE hFile, uint64_t ullOffset, void *pv, uint32_t cb)
     /* an offset past the end (a damaged or truncated file whose fields       */
     /* point beyond it) fails here whichever of the seek or the read is the   */
     /* one Windows refuses.                                                   */
+    /* The Windows BOOL each call below answers is tested in its own          */
+    /* form, on purpose -- not as the engine's bool.                          */
     if (!SetFilePointerEx(hFile, liPos, NULL, FILE_BEGIN) || !ReadFile(hFile, pv, cb, &dwGot, NULL) || dwGot != cb)
     {   /* Past the end, or the read failed. */
 
@@ -348,7 +350,7 @@ static int Bfz_ZipFirstEntry(BFZ_Reader *pR, uint64_t ullFileSize)
     uint32_t  offEocd;
     uint32_t  offField;
     int       iStatus;
-    int       bFound;
+    bool      bFound;
 
     /* The end-of-central-directory record: searched for backwards in the     */
     /* tail -- the last BFZ_EOCD_SCAN bytes, or the whole of a smaller zip.   */
@@ -389,7 +391,7 @@ static int Bfz_ZipFirstEntry(BFZ_Reader *pR, uint64_t ullFileSize)
     /* buffer's end.  A failed read skips the loop (its condition) and is     */
     /* handled just after it.                                                 */
     iStatus = Bfz_ReadAt(pR->hFile, ullFileSize - cbTail, pbTail, cbTail);
-    bFound  = 0;
+    bFound  = false;
     offEocd = 0;
     i       = cbTail - 22;
 
@@ -397,7 +399,7 @@ static int Bfz_ZipFirstEntry(BFZ_Reader *pR, uint64_t ullFileSize)
     {   /* One candidate position per iteration, from the end backwards. */
         if (Bfz_Le32(pbTail + i) == BFZ_ZIP_EOCD && Bfz_EocdPossible(pbTail, i, cbTail, ullFileSize))
         {   /* The record. */
-            bFound  = 1;
+            bFound  = true;
             offEocd = i;
         }
         else if (i == 0)
@@ -600,8 +602,8 @@ static int Bfz_ZipFirstEntry(BFZ_Reader *pR, uint64_t ullFileSize)
     /* and the entry's end is still to come (BFZ_ReaderRead, Bfz_ZipEnd).   */
     pR->uiZipCrcRun  = (uint32_t)crc32(0L, Z_NULL, 0);
     pR->ullZipOut    = 0;
-    pR->bZipInflated = 0;
-    pR->bZipChecked  = 0;
+    pR->bZipInflated = false;
+    pR->bZipChecked  = false;
 
     /* Positioned at the data: the next ReadFile reads the entry.  A read of    */
     /* zero bytes is used as the seek -- Bfz_ReadAt's seek with nothing read.   */
@@ -685,6 +687,8 @@ static int Bfz_XzSize(BFZ_Reader *pR, uint64_t *pullSize)
                 cbAsk = (uint32_t)(pR->ullFileSize - ullPos);
             }
 
+            /* The Windows BOOL the call below answers is tested in its own   */
+            /* form, on purpose -- not as the engine's bool.                  */
             if (cbAsk != 0 && (!ReadFile(pR->hFile, pR->pbIn, cbAsk, &dwGot, NULL) || dwGot != cbAsk))
             {   /* The read failed, or came back short -- the file was shorter   */
                 /* than its size said, or changed under the read.  Recorded      */
@@ -792,7 +796,7 @@ static int Bfz_ZstdSize(BFZ_Reader *pR, uint64_t *pullSize)
     uint32_t         cbHead;
     uint32_t         uiBlock;
     int              iStatus;
-    int              bLast;
+    bool             bLast;
 
     /* "Unknown" until the walk reaches the file's end exactly; the walk   */
     /* starts at the file's first byte with nothing summed.                */
@@ -853,7 +857,7 @@ static int Bfz_ZstdSize(BFZ_Reader *pR, uint64_t *pullSize)
         /* how long the frame is, only how much it decompresses to.          */
         ullTotal += zfh.frameContentSize;
         ullPos   += zfh.headerSize;
-        bLast     = 0;
+        bLast     = false;
 
         while (!bLast)
         {   /* One block header per iteration, to the frame's last block. */
@@ -1028,6 +1032,8 @@ int BFZ_ReaderOpen(HANDLE hFile, BFZ_Reader **ppReader)
     /* no-op -- a half-built reader left here would be freed twice.          */
     *ppReader = NULL;
 
+    /* The Windows BOOL the call below answers is tested in its own   */
+    /* form, on purpose -- not as the engine's bool.                  */
     if (!GetFileSizeEx(hFile, &liSize))
     {   /* Not a file whose size can be read.  (A device never comes here:    */
         /* bfe_image.c hands the reader FILE sources only, and bfe_device.c   */
@@ -1170,7 +1176,7 @@ int BFZ_ReaderOpen(HANDLE hFile, BFZ_Reader **ppReader)
         }
 
         /* Remember whether there is inflate state for the close to free:      */
-        /* the close calls inflateEnd only when this is TRUE.  (zlib's         */
+        /* the close calls inflateEnd only when this is true.  (zlib's         */
         /* inflateEnd would only return an error for a stream that never       */
         /* started -- inflateStateCheck, inflate.c -- but the flag keeps the   */
         /* close from leaning on that, and serves the zip branch too.)         */
@@ -1361,6 +1367,8 @@ static int Bfz_Refill(BFZ_Reader *pR)
         cbAsk = (uint32_t)pR->ullZipLeft;
     }
 
+    /* The Windows BOOL the call below answers is tested in its own   */
+    /* form, on purpose -- not as the engine's bool.                  */
     if (cbAsk != 0 && !ReadFile(pR->hFile, pR->pbIn, cbAsk, &dwGot, NULL))
     {   /* The read failed.  A SHORT read is not a failure here (dwGot    */
         /* simply counts less; a read at the end of the file returns 0,   */
@@ -1393,7 +1401,7 @@ static int Bfz_Refill(BFZ_Reader *pR)
         /* BEFORE its entry does also lands here, with ullZipLeft above    */
         /* zero; the reader then sees the data stop short and reports it   */
         /* (BFZ_ReaderRead), so no separate test is needed here.           */
-        pR->bInEof = 1;
+        pR->bInEof = true;
     }
 
     /* Refilled, or at the end. */
@@ -1438,6 +1446,8 @@ static int Bfz_TopUp(BFZ_Reader *pR, uint32_t cbNeed)
     pR->offIn = 0;
     pR->cbIn  = cbLeft;
 
+    /* The Windows BOOL the call below answers is tested in its own   */
+    /* form, on purpose -- not as the engine's bool.                  */
     if (!ReadFile(pR->hFile, pR->pbIn + cbLeft, BFZ_IN_BUFFER - cbLeft, &dwGot, NULL))
     {   /* The read failed (a short read is not a failure: the file has       */
         /* simply ended).  The bytes already moved to the front stay valid    */
@@ -1455,7 +1465,7 @@ static int Bfz_TopUp(BFZ_Reader *pR, uint32_t cbNeed)
 
     if (dwGot == 0)
     {   /* The file has ended. */
-        pR->bInEof = 1;
+        pR->bInEof = true;
     }
 
     /* As much in view as the file allows. */
@@ -1552,7 +1562,7 @@ static int Bfz_ZipEnd(BFZ_Reader *pR)
         }
 
         /* The decoder is finished. */
-        pR->bZipInflated = 1;
+        pR->bZipInflated = true;
     }
 
     if (pR->iZipMethod == 0 && (pR->ullZipLeft != 0 || pR->offIn != pR->cbIn))
@@ -1570,8 +1580,8 @@ static int Bfz_ZipEnd(BFZ_Reader *pR)
     }
 
     /* Whole and as zipped; every later read gives 0 bytes. */
-    pR->bZipChecked = 1;
-    pR->bDone       = 1;
+    pR->bZipChecked = true;
+    pR->bDone       = true;
     return(BFE_OK);
 }
 
@@ -1606,7 +1616,7 @@ int BFZ_ReaderRead(BFZ_Reader *pR, void *pvBuffer, uint32_t cbWant, uint32_t *pc
     lzma_action xaction;
     int       zret;
     size_t    zsret;
-    int       bProgress;
+    bool      bProgress;
     ZSTD_inBuffer  zin;
     ZSTD_outBuffer zout;
 
@@ -1688,13 +1698,14 @@ int BFZ_ReaderRead(BFZ_Reader *pR, void *pvBuffer, uint32_t cbWant, uint32_t *pc
             if (xret == LZMA_STREAM_END)
             {   /* Every stream decoded, each one's check verified by liblzma   */
                 /* on the way: the image has ended.                             */
-                pR->bDone = 1;
+                pR->bDone = true;
             }
             else if (xret == LZMA_OPTIONS_ERROR)
-            {   /* A filter this build does not have (only LZMA2 is built).   */
-                /* Kept apart from damage because the file may be perfectly   */
-                /* good -- the message says what to do about it.              */
-                return(BFX_Fail(BFE_ERR_UNSUPPORTED, "the .xz file uses a filter this program does not read (only LZMA2)"));
+            {   /* A filter this build does not have (LZMA2 and the BCJ        */
+                /* filters are built; delta is not).  Kept apart from damage   */
+                /* because the file may be perfectly good -- the message       */
+                /* says what to do about it.                                   */
+                return(BFX_Fail(BFE_ERR_UNSUPPORTED, "the .xz file uses a filter this program does not read (it reads LZMA2 and the BCJ filters)"));
             }
             else if (xret != LZMA_OK)
             {   /* Damaged or cut short (LZMA_DATA_ERROR, a bad check, or      */
@@ -1747,7 +1758,7 @@ int BFZ_ReaderRead(BFZ_Reader *pR, void *pvBuffer, uint32_t cbWant, uint32_t *pc
                     /* or anything else -- is ignored without a word: every   */
                     /* member delivered has had its CRC and length checked    */
                     /* by zlib against its trailer, so the image is whole.    */
-                    pR->bDone = 1;
+                    pR->bDone = true;
                 }
             }
             else if (zret == Z_STREAM_END)
@@ -1756,8 +1767,8 @@ int BFZ_ReaderRead(BFZ_Reader *pR, void *pvBuffer, uint32_t cbWant, uint32_t *pc
                 /* still inflates passes zlib -- so what it gave is judged     */
                 /* against the archive's CRC-32 and size below the loop        */
                 /* (Bfz_ZipEnd), which is told the decoder is finished.        */
-                pR->bZipInflated = 1;
-                pR->bDone        = 1;
+                pR->bZipInflated = true;
+                pR->bDone        = true;
             }
             else if (zret == Z_BUF_ERROR && pR->bInEof)
             {   /* Out of input before the end: cut short.  Z_BUF_ERROR on    */
@@ -1836,7 +1847,7 @@ int BFZ_ReaderRead(BFZ_Reader *pR, void *pvBuffer, uint32_t cbWant, uint32_t *pc
                 }
 
                 /* The last frame ended cleanly: the image has ended. */
-                pR->bDone = 1;
+                pR->bDone = true;
             }
         }
     }
@@ -1949,6 +1960,8 @@ static int Bfz_WriterFlush(BFZ_Writer *pW)
     /* Into the file at its current position -- the writer never seeks, so    */
     /* the pieces land one after another from where the open found it.        */
     /* Nothing to write (an encoder step that produced nothing) is skipped.   */
+    /* The Windows BOOL the call below answers is tested in its own           */
+    /* form, on purpose -- not as the engine's bool.                          */
     if (cbHave != 0 && (!WriteFile(pW->hFile, pW->pbOut, cbHave, &dwPut, NULL) || dwPut != cbHave))
     {   /* The disk refused it, or took only part (a full disk is the usual   */
         /* cause).  The output stays in the buffer and the encoder's state    */

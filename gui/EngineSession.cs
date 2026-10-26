@@ -956,25 +956,26 @@ namespace BifrostFM
             ENGS_FillFailure(objResult, ref objResult.EOR_iStatus, ref objResult.EOR_sDetail, iStatus);
 
             if (iStatus == ENG_clsNative.ENG_ERR_MOUNT)
-            {   /* Neither an ext2/3/4 filesystem there nor a FAT or exFAT one:   */
-                /* the engine tries lwext4 first and FatFs after it, and this     */
-                /* status means both refused.  If the first page is one the       */
-                /* partition window recognises but the engine does not open       */
-                /* (NTFS, squashfs, swap), the message says which, so the user    */
-                /* is not left guessing.  An ext, FAT or exFAT signature that     */
-                /* still would not mount is a damaged filesystem of a kind the    */
-                /* engine does open, and the engine's words are left as they      */
-                /* are.                                                           */
+            {   /* No ext2/3/4, squashfs, FAT or exFAT filesystem there: the      */
+                /* engine tries lwext4 first, then squashfs (by its magic), then  */
+                /* FatFs, and this status means every one refused.  If the first  */
+                /* page is one the partition window recognises but the engine     */
+                /* does not open (NTFS, swap), the message says which, so the     */
+                /* user is not left guessing.  An ext, squashfs, FAT or exFAT     */
+                /* signature that still would not mount is a damaged filesystem   */
+                /* of a kind the engine does open, and the engine's words are     */
+                /* left as they are.                                              */
                 abProbe = new byte[PTB_Tables.PTB_PROBE_BYTES];
 
                 if (ENG_clsNative.ENG_pfnReadRaw(sImagePath, ullOffset, abProbe, (uint)abProbe.Length) == ENG_clsNative.ENG_OK)
                 {   /* The first page read: what does it say it holds? */
                     sWhat = PTB_Tables.PTB_ContentText(abProbe);
 
-                    if (sWhat.Length != 0 && !sWhat.StartsWith("ext") && !sWhat.StartsWith("FAT") && !sWhat.StartsWith("exFAT"))
+                    if (sWhat.Length != 0 && !sWhat.StartsWith("ext") && !sWhat.StartsWith("FAT") && !sWhat.StartsWith("exFAT") &&
+                        !sWhat.StartsWith("squashfs"))
                     {   /* A filesystem we know of, and not one the engine opens. */
                         objResult.EOR_sDetail = objResult.EOR_sDetail + "  It holds " + sWhat.Replace("  ", " ") +
-                            ", not a filesystem this program opens (ext2, ext3, ext4, FAT or exFAT).";
+                            ", not a filesystem this program opens (ext2, ext3, ext4, squashfs, FAT or exFAT).";
                     }
                 }
             }

@@ -43,8 +43,8 @@
 #ifndef EXT4_CASEFOLD_H_
 #define EXT4_CASEFOLD_H_
 
-/* lwext4's configuration and on-disk types, and ext4_fs.h for the           */
-/* superblock and inode reference the functions take.                        */
+/* lwext4's configuration and on-disk types, and ext4_fs.h for the   */
+/* superblock and inode reference the functions take.                */
 #include "ext4_config.h"
 #include "ext4_types.h"
 #include "ext4_fs.h"
@@ -54,7 +54,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-/* The table type is e2fsprogs' (lwext4\unicode\ext2fsP.h); callers of this  */
+/* The table type is e2fsprogs' (lwext4\unicode\ext2fsP.h); callers of this   */
 /* module hold only the pointer, which is why it is declared opaquely here.   */
 struct ext2fs_nls_table;
 
@@ -67,7 +67,7 @@ struct ext2fs_nls_table;
 /* ext4_casefold_table:                                                       */
 /*                                                                            */
 /* The folding table of a filesystem, or NULL when its names are never        */
-/* folded: the casefold feature is off, or its s_encoding names a version    */
+/* folded: the casefold feature is off, or its s_encoding names a version     */
 /* the mirrored tables do not know.  The second case is also how a mount      */
 /* refuses such a filesystem (ext4_fs_check_features), since a lookup that    */
 /* folded by the wrong tables would miss names the driver finds.              */
@@ -152,4 +152,4 @@ bool ext4_casefold_match(const struct ext2fs_nls_table *table,
                          const char *de_name, size_t de_len);
 
 /* The end of the once-only guard. */
-#endif /* EXT4_CASEFOLD_H_ */
+#endif // EXT4_CASEFOLD_H_

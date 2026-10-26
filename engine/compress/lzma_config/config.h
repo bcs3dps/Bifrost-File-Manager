@@ -6,13 +6,18 @@
 /*                                                                            */
 /* liblzma (xz-5.8.1, mirrored under ..\xz-5.8.1 with only the files this     */
 /* build compiles) normally gets this file from its configure script.  This   */
-/* one is written by hand: .xz streams with the LZMA2 filter ONLY, read and   */
-/* written; the CRC32, CRC64 and SHA-256 integrity checks (a file may carry   */
-/* any of the three); the multi-threaded encoder on Windows threads.  No BCJ  */
-/* or delta filter is built, so a .xz using one is refused by the decoder     */
-/* with LZMA_OPTIONS_ERROR.  When the file was written, a link test of the    */
-/* file set and this configuration encoded and decoded a round trip (as       */
-/* found; that test is not in this tree).  There is no include guard: the     */
+/* one is written by hand: .xz streams with the LZMA2 filter, read and        */
+/* written; the BCJ filters (x86, PowerPC, IA-64, ARM, ARM-Thumb, ARM64,      */
+/* SPARC, RISC-V) READ only -- an .xz image made with one, and a squashfs     */
+/* "xz" block, which mksquashfs's -Xbcj option writes with one before         */
+/* LZMA2; the LZMA1 decoder alone also serves a squashfs "lzma" block (the    */
+/* old .lzma format); the CRC32, CRC64 and SHA-256 integrity checks (a file   */
+/* may carry any of the three); the multi-threaded encoder on Windows         */
+/* threads.  No delta filter is built, and no BCJ encoder: a .xz using delta  */
+/* is refused by the decoder with LZMA_OPTIONS_ERROR, and the .xz writer      */
+/* uses LZMA2 alone.  When the file was first written, a link test of the     */
+/* LZMA2 file set and this configuration encoded and decoded a round trip     */
+/* (as found; that test is not in this tree).  There is no include guard: the */
 /* one include is sysdefs.h's, under HAVE_CONFIG_H (which build_engine.bat    */
 /* defines), inside sysdefs.h's own guard -- so once per source file.         */
 /*----------------------------------------------------------------------------*/
@@ -21,6 +26,14 @@
 #define HAVE_ENCODER_LZMA2 1                   // LZMA2 encoder: the .xz writer's filter
 #define HAVE_DECODER_LZMA1 1                   // LZMA1 decoder: LZMA2 is built on it
 #define HAVE_DECODER_LZMA2 1                   // LZMA2 decoder: the .xz reader's filter
+#define HAVE_DECODER_X86 1                     // BCJ decoder for x86 code (simple\x86.c), ahead of LZMA2 in a stream that uses it
+#define HAVE_DECODER_POWERPC 1                 // BCJ decoder for PowerPC (big-endian) code (simple\powerpc.c)
+#define HAVE_DECODER_IA64 1                    // BCJ decoder for IA-64 (Itanium) code (simple\ia64.c)
+#define HAVE_DECODER_ARM 1                     // BCJ decoder for 32-bit ARM code (simple\arm.c)
+#define HAVE_DECODER_ARMTHUMB 1                // BCJ decoder for ARM-Thumb code (simple\armthumb.c)
+#define HAVE_DECODER_ARM64 1                   // BCJ decoder for ARM64 code (simple\arm64.c)
+#define HAVE_DECODER_SPARC 1                   // BCJ decoder for SPARC code (simple\sparc.c)
+#define HAVE_DECODER_RISCV 1                   // BCJ decoder for RISC-V code (simple\riscv.c)
 #define HAVE_CHECK_CRC32 1                     // a .xz's integrity check may be CRC32
 #define HAVE_CHECK_CRC64 1                     // ... CRC64 (xz's default)
 #define HAVE_CHECK_SHA256 1                    // ... or SHA-256

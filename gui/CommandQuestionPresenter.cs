@@ -711,7 +711,8 @@ namespace BifrostFM
         /*--------------------------------------------------------------------*/
         /* Qpr_Warning:                                                       */
         /*                                                                    */
-        /* The text of a Yes / No question, from what the request captured    */
+        /* The text of a Yes / No question -- or of the read-only notice,     */
+        /* shown with OK alone -- from what the request captured              */
         /* when it was made (and, for Close and Continue, the worker's state  */
         /* as the client last copied it) -- never from the panes as they are  */
         /* now.  An empty string means the question cannot be worded from     */
@@ -1151,6 +1152,16 @@ namespace BifrostFM
                     return("Replace the existing checksum file\n" + sContext + "\nwith the sum of the image just written?\n\n" +
                         "It may be the image publisher's own sum, kept to check the image against.\n" +
                         "No keeps it; the sum just computed is still shown.");
+                case QNK_enmQuestionKind.ReadOnlyFilesystem:
+                    /* Not a question: the notice that a change was refused     */
+                    /* because the open filesystem is squashfs, which nothing   */
+                    /* can write (Sys_RefuseReadOnlyFilesystem,                 */
+                    /* CommandSequences.cs).  It is shown with OK alone, once   */
+                    /* per request, so a drop of many files gets one box and    */
+                    /* the whole drop is refused before anything is copied.     */
+                    return("This filesystem is read-only.\n\n" +
+                        "squashfs is a compressed filesystem written whole: nothing in it can be added, changed or removed.\n" +
+                        "Nothing was changed.");
                 default:
                     /* A kind this function does not word: "" -- answered   */
                     /* Cancel, so no unknown question can be given a Yes.   */
@@ -2374,6 +2385,7 @@ namespace BifrostFM
             bool bAccepted;
             QSC_clsWindowScope objScope;
             string sCaption;
+            MessageBoxButtons enmButtons;
             MessageBoxIcon enmIcon;
             MessageBoxDefaultButton enmDefault;
 
@@ -2552,9 +2564,10 @@ namespace BifrostFM
                             enmAnswer = objReply.ANS_enmKind;
                         }
                         else
-                        {   /* Every other kind is a Yes / No question, worded   */
-                            /* by Qpr_Warning; "" means it cannot be worded,     */
-                            /* and the Cancel already set stands.                */
+                        {   /* Every other kind is a Yes / No question -- or the   */
+                            /* read-only notice, OK alone -- worded by             */
+                            /* Qpr_Warning; "" means it cannot be worded, and      */
+                            /* the Cancel already set stands.                      */
                             sText = Qpr_Warning(objQuestion);
                             if (sText.Length != 0)
                             {   /* Worded: shown in the program's message box   */
@@ -2582,14 +2595,26 @@ namespace BifrostFM
                                         MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
                                 }
                                 else
-                                {   /* Every other kind: the plain message   */
-                                    /* box.  It starts as "BifrostFM", a     */
-                                    /* warning, No the default; the kinds    */
-                                    /* below change what differs for them.   */
+                                {   /* Every other kind: the plain message    */
+                                    /* box.  It starts as "BifrostFM", a      */
+                                    /* warning, Yes and No, No the default;   */
+                                    /* the kinds below change what differs    */
+                                    /* for them.                              */
                                     sCaption = "BifrostFM";
+                                    enmButtons = MessageBoxButtons.YesNo;
                                     enmIcon = MessageBoxIcon.Warning;
                                     enmDefault = MessageBoxDefaultButton.Button2;
-                                    if (objQuestion.QST_enmKind == QNK_enmQuestionKind.WriteDevice)
+                                    if (objQuestion.QST_enmKind == QNK_enmQuestionKind.ReadOnlyFilesystem)
+                                    {   /* The read-only notice: OK alone, the   */
+                                        /* default.  Its answer is not a Yes,    */
+                                        /* and nothing waits on one: the         */
+                                        /* change it reports is already          */
+                                        /* refused.                              */
+                                        sCaption = "Read-Only Filesystem";
+                                        enmButtons = MessageBoxButtons.OK;
+                                        enmDefault = MessageBoxDefaultButton.Button1;
+                                    }
+                                    else if (objQuestion.QST_enmKind == QNK_enmQuestionKind.WriteDevice)
                                     {   /* An image to a device: its own   */
                                         /* caption.                        */
                                         sCaption = "Write Device";
@@ -2696,7 +2721,7 @@ namespace BifrostFM
                                     /* display and is disposed by   */
                                     /* its own call.                */
                                     enmResult = MSG_clsMessageForm.MSG_Show(frmOwner, Qpr_fntDialog, sText, sCaption,
-                                        MessageBoxButtons.YesNo, enmIcon, enmDefault);
+                                        enmButtons, enmIcon, enmDefault);
                                 }
 
                                 /* Only the Yes button is a Yes.  No, the box   */

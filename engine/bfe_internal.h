@@ -19,7 +19,8 @@
 /* e2fsck through it (bfe_fsck.c), BFZ_ is the compressed-image reader and    */
 /* writer (bfe_compress.c), BFRZ_ is the resize that drives resize2fs         */
 /* (bfe_resize.c), BFA_ is FatFs's device layer over the block device         */
-/* (bfe_fatio.c), and BFT_ is the FAT session's calls into FatFs (bfe_fat.c). */
+/* (bfe_fatio.c), BFT_ is the FAT session's calls into FatFs (bfe_fat.c),     */
+/* and BFQ_ is the squashfs session's calls into squashfuse (bfe_sqfs.c).     */
 /*                                                                            */
 /* BFC_ is used TWICE: by the copy engine and by the capacity test            */
 /* (bfe_capacity.c).  Every function of both is static and no name occurs in  */
@@ -33,9 +34,13 @@
 #ifndef BFE_INTERNAL_H
 #define BFE_INTERNAL_H
 
-/* Fixed-width integers, size_t, and wchar_t for the host-path helpers. */
+/* Fixed-width integers, size_t, wchar_t for the host-path helpers, and     */
+/* bool: the engine's one boolean form is <stdbool.h>'s, because lwext4,    */
+/* built into the engine, requires that header -- so every flag here is a   */
+/* bool holding true or false, and the engine defines no TRUE or FALSE.     */
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 #include <wchar.h>
 
 /* The public interface: BFE_Entry and the status codes the internals use. */
@@ -53,18 +58,43 @@
 #define BFX_NEW_DIR_MODE   0755u                 // permission bits BFE_MakeDir gives a new directory
 #define BFX_NEW_LINK_MODE  0777u                 // permission bits of a symbolic link (always 0777 on Linux)
 #define BFX_HEAL_NAME      ".bifrost-heal"       // the entry briefly created in a new directory to settle its checksum
-#define BFX_FS_EXT         0                     // BFX_FsKind: the session's filesystem is ext2/3/4, mounted by lwext4
-#define BFX_FS_FAT         1                     // BFX_FsKind: the session's filesystem is FAT12/16/32 or exFAT, mounted by FatFs (bfe_fat.c)
 
-/* The project's boolean pair, defined only where windows.h has not        */
-/* already defined it (windows.h is included first in the files that use   */
-/* it).                                                                    */
-#ifndef FALSE
-#define FALSE              0                // boolean false (the files that include windows.h get its own; the guard keeps the two from clashing)
-#endif
-#ifndef TRUE
-#define TRUE               (!FALSE)         // boolean true
-#endif
+/*----------------------------------------------------------------------------*/
+/* The filesystem kinds a session can hold -- documentation table.  Which     */
+/* library holds the open session's filesystem (BFX_FsKind).  ADDING A KIND:  */
+/* a value here, its mask below, its row in bifrost_engine.c's traits table   */
+/* (BFX_FS_TRAITS, in this order), a case in every switch on the kind --      */
+/* each switch has a default that refuses, so a case not yet written fails    */
+/* closed -- and its mask in the kinds of every session call taught it        */
+/* (BFX_EnterKinds); a call not taught it refuses it at the gate.             */
+/*----------------------------------------------------------------------------*/
+typedef enum BFX_enmFsKind
+{
+    BFX_FS_EXT = 0,                                  // ext2/3/4, mounted by lwext4 -- also the answer with no session open
+    BFX_FS_FAT = 1,                                  // FAT12/16/32 or exFAT, mounted by FatFs (bfe_fat.c)
+    BFX_FS_SQFS = 2,                                 // squashfs 4.0, read by squashfuse (bfe_sqfs.c); never writable
+    BFX_FS_COUNT = 3                                 // how many kinds there are: the traits table's length, never a kind
+} BFX_enmFsKind;
+
+/* Each kind's bit, for the set of kinds a session call handles (BFX_EnterKinds). */
+#define BFX_FSMASK_EXT     (1u << BFX_FS_EXT)    // the call handles an ext2/3/4 session
+#define BFX_FSMASK_FAT     (1u << BFX_FS_FAT)    // the call handles a FAT or exFAT session
+#define BFX_FSMASK_SQFS    (1u << BFX_FS_SQFS)   // the call handles a squashfs session
+
+/*----------------------------------------------------------------------------*/
+/* BFX_strctFsTraits -- what a kind of filesystem is like, for the code that  */
+/* tests a property rather than calling a library: one row per kind in        */
+/* bifrost_engine.c's BFX_FS_TRAITS, read through BFX_FsTraits.  Plain data,  */
+/* no function pointers: which library runs is decided by the switches on     */
+/* the kind, written out in the code.                                         */
+/*----------------------------------------------------------------------------*/
+typedef struct BFX_strctFsTraits
+{
+    bool        bWritable;                           // true when a session of the kind can ever be opened for writing; false refuses every change READ_ONLY at the gate
+    bool        bUnixMeta;                           // true when entries carry Unix modes, owners and links -- so a copy sets them and an extract writes the manifest
+    bool        bFatNames;                           // true when FAT's naming rules hold: names matched letter case aside and without trailing spaces and dots, some characters forbidden, up to 255 UTF-16 units
+    const char *pszUntaught;                         // the detail line for a session call not taught the kind (the gate, behind BFX_Enter and BFX_EnterKinds) -- what the kind lacks
+} BFX_strctFsTraits;
 
 /* lwext4's superblock, named but not defined: BFX_Superblock below hands   */
 /* out a pointer to one, and a file that only passes the pointer on need    */
@@ -74,23 +104,32 @@ struct ext4_sblock;
 /*----------------------------------------------------------------------------*/
 /* Shared engine internals -- defined in bifrost_engine.c.                    */
 /*                                                                            */
-/* BFX_Enter        : the gate every public function passes first.  Takes the */
-/*                    busy flag and checks the session state; on any failure  */
-/*                    it has ALREADY released the flag, so the caller just    */
-/*                    returns the code.  On BFE_OK the caller must BFX_Leave. */
+/* BFX_Enter        : the gate a public function passes first when it handles */
+/*                    ext2/3/4 alone or needs no session (BFX_EnterKinds is   */
+/*                    the other way through it).  Takes the busy flag and     */
+/*                    checks the session state; on any failure it has         */
+/*                    ALREADY released the flag, so the caller just returns   */
+/*                    the code.  On BFE_OK the caller must BFX_Leave.         */
 /*                    It also notes, for BFX_Fail, whether the call works     */
 /*                    inside the open session (bNeedOpen).  A call that needs */
-/*                    the session is refused on a FAT one                     */
-/*                    (BFE_ERR_UNSUPPORTED): code written for lwext4 alone    */
-/*                    never runs without an lwext4 mount.                     */
-/* BFX_EnterAnyFs   : the same gate for a function that answers for a FAT     */
-/*                    session too, testing the session's kind itself.         */
-/* BFX_FsKind       : the open session's kind, BFX_FS_EXT or BFX_FS_FAT       */
-/*                    (BFX_FS_EXT when none is open) -- what bfe_fs.c's       */
-/*                    switches, bfe_copy.c's FAT tests and bifrost_engine.c   */
-/*                    read.                                                   */
+/*                    the session handles ext2/3/4 alone: any other kind is   */
+/*                    refused (BFX_EnterKinds says how), so code written for  */
+/*                    lwext4 never runs without an lwext4 mount.              */
+/* BFX_EnterKinds   : the gate for a call that needs the open session and     */
+/*                    names, as BFX_FSMASK_* bits, every kind it handles; a   */
+/*                    session of any other kind is refused -- a change on a   */
+/*                    kind that is never writable as READ_ONLY, anything      */
+/*                    else as UNSUPPORTED -- with the kind's own reason.      */
+/* BFX_FsKind       : the open session's kind (BFX_FS_EXT when none is open)  */
+/*                    -- what every switch on the kind reads.                 */
+/* BFX_FsTraits     : the open session's kind's row of the traits table (the  */
+/*                    ext2/3/4 row when none is open); never NULL.            */
+/* BFX_FsMaxFileBytes: the largest file the open session's filesystem holds,  */
+/*                    for a copy's refusal before anything is written         */
+/*                    (UINT64_MAX when the kind sets no limit of its own; 0   */
+/*                    for a kind no copy may write, squashfs).                */
 /* BFX_Leave        : release the busy flag.                                  */
-/* BFX_IsOpen       : TRUE while an image is mounted (for a function that     */
+/* BFX_IsOpen       : true while an image is mounted (for a function that     */
 /*                    must run only when none is; call it holding the flag).  */
 /* BFX_Fail         : record a printf-style detail line as the last error and */
 /*                    hand the code back, so a failure is one statement.      */
@@ -99,12 +138,11 @@ struct ext4_sblock;
 /*                    by the open session (in a call inside it) or by an      */
 /*                    operation the call began on the block device -- never   */
 /*                    in a raw call, which drives none.  EVERY CALLER, in     */
-/*                    every engine                                            */
-/*                    file, calls it BEFORE BFX_Leave: written after the      */
-/*                    release, another call could overwrite the line and the  */
-/*                    user would be shown the wrong reason.                   */
+/*                    every engine file, calls it BEFORE BFX_Leave: written   */
+/*                    after the release, another call could overwrite the     */
+/*                    line and the user would be shown the wrong reason.      */
 /* BFX_MapErrno     : translate an lwext4 errno-style result to BFE_ERR_*.    */
-/* BFX_PathValid    : TRUE when an image path is non-NULL, absolute and       */
+/* BFX_PathValid    : true when an image path is non-NULL, absolute and       */
 /*                    canonical: "/" itself, or no empty, "." or ".."         */
 /*                    component (so no "//" and no trailing '/') -- and, on   */
 /*                    a FAT session, no component of spaces and dots alone,   */
@@ -116,15 +154,18 @@ struct ext4_sblock;
 /* BFX_PathCanonical: a malloc'd copy of a valid path in the one spelling its */
 /*                    filesystem matches it by -- on FAT each name's trailing */
 /*                    spaces and dots dropped, as FatFs and Windows drop      */
-/*                    them; on ext2/3/4 the path itself -- for the tests that */
-/*                    compare paths as text.  NULL when out of memory.        */
+/*                    them; on ext2/3/4 and squashfs the path itself -- for   */
+/*                    the tests that compare paths as text.  NULL when out    */
+/*                    of memory.                                              */
 /* BFX_Superblock   : the mounted filesystem's superblock (never NULL while   */
-/*                    an ext2/3/4 image is open; NULL on a FAT session, whose */
-/*                    gate refuses every call that would ask for it).         */
+/*                    an ext2/3/4 image is open; NULL on a FAT or squashfs    */
+/*                    session, whose gate refuses every call that would ask   */
+/*                    for it).                                                */
 /* BFX_FillEntry    : read one path's inode into a BFE_Entry; pszName becomes */
 /*                    the entry's name.  Returns an lwext4 errno-style code.  */
 /*                    On a FAT session FatFs supplies the facts instead       */
-/*                    (BFT_StatEntry), with the same kind of result.          */
+/*                    (BFT_StatEntry), and on a squashfs one squashfuse       */
+/*                    (BFQ_StatEntry), with the same kind of result.          */
 /* BFX_CollectNames : read a directory's entry names ("." and ".." excluded)  */
 /*                    into a malloc'd array and CLOSE the directory, so no    */
 /*                    lwext4 directory handle is open while the caller works  */
@@ -132,12 +173,14 @@ struct ext4_sblock;
 /*                    A directory block that cannot be read is a failure      */
 /*                    (lwext4's error), with no names handed back.  On a FAT  */
 /*                    session FatFs reads the directory instead               */
-/*                    (BFT_CollectNames), under the same promise.             */
+/*                    (BFT_CollectNames), and on a squashfs one squashfuse    */
+/*                    (BFQ_CollectNames), under the same promise.             */
 /* BFX_FreeNames    : free what BFX_CollectNames returned.                    */
 /* BFX_NewDirFinish : after lwext4 creates a directory -- settle its block    */
 /*                    checksum, set its mode and its times.  Returns an       */
 /*                    lwext4 errno-style code.  On a FAT session only its     */
-/*                    modify time is set (FAT's one) and its parent touched.  */
+/*                    modify time is set (FAT's one) and its parent touched;  */
+/*                    on squashfs it answers EROFS, a guard.                  */
 /* BFX_NewLinkFinish: after lwext4 creates a symbolic link -- set mode 0777,  */
 /*                    its owner and its times.  Returns an lwext4 errno-style */
 /*                    code.                                                   */
@@ -156,14 +199,16 @@ int   BFX_TouchParent(const char *pszImagePath);
 int   BFX_CheckParent(const char *pszImagePath);
 int   BFX_NewDirFinish(const char *pszImageDir, uint32_t uiMode, uint32_t uiTime);
 int   BFX_NewLinkFinish(const char *pszImageLink, uint32_t uiUid, uint32_t uiGid, uint32_t uiTime);
-int   BFX_Enter(int bNeedOpen, int bNeedWrite);
-int   BFX_EnterAnyFs(int bNeedOpen, int bNeedWrite);
-int   BFX_FsKind(void);
+int   BFX_Enter(bool bNeedOpen, bool bNeedWrite);
+int   BFX_EnterKinds(bool bNeedWrite, uint32_t uiFsKinds);
+BFX_enmFsKind BFX_FsKind(void);
+const BFX_strctFsTraits *BFX_FsTraits(void);
+uint64_t BFX_FsMaxFileBytes(void);
 void  BFX_Leave(void);
-int   BFX_IsOpen(void);
+bool  BFX_IsOpen(void);
 int   BFX_Fail(int iCode, const char *pszFormat, ...);
 int   BFX_MapErrno(int rc);
-int   BFX_PathValid(const char *pszImagePath);
+bool  BFX_PathValid(const char *pszImagePath);
 char *BFX_PathCanonical(const char *pszImagePath);
 struct ext4_sblock *BFX_Superblock(void);
 int   BFX_FillEntry(const char *pszImagePath, const char *pszName, BFE_Entry *pEntry);
@@ -184,10 +229,10 @@ void  BFX_FreeNames(char **ppszNames, int nNames);
 /*                     "<parent>/<name>".                                     */
 /* BFU_AppendHost    : <path> with a suffix appended (a sidecar's name).      */
 /* BFU_Utf8ToWide    : UTF-8 -> UTF-16; NULL on malformed input, or out of    */
-/*                     memory with *pbNoMemory TRUE.                          */
+/*                     memory with *pbNoMemory true.                          */
 /* BFU_WideToUtf8    : UTF-16 -> UTF-8; NULL on an unpaired surrogate, or out */
-/*                     of memory with *pbNoMemory TRUE.                       */
-/* BFU_HostNameValid : TRUE when a UTF-8 name can be a Windows file name.     */
+/*                     of memory with *pbNoMemory true.                       */
+/* BFU_HostNameValid : true when a UTF-8 name can be a Windows file name.     */
 /* BFU_LastComponent : pointer to the final component inside an image path    */
 /*                     (the whole path for the root); nothing to free.        */
 /*----------------------------------------------------------------------------*/
@@ -195,9 +240,9 @@ char       *BFU_JoinImage(const char *pszDir, const char *pszName);
 wchar_t    *BFU_JoinHost(const wchar_t *pwszDir, const wchar_t *pwszName);
 char       *BFU_JoinRelative(const char *pszParent, const char *pszName);
 wchar_t    *BFU_AppendHost(const wchar_t *pwszPath, const wchar_t *pwszSuffix);
-wchar_t    *BFU_Utf8ToWide(const char *pszUtf8, int *pbNoMemory);
-char       *BFU_WideToUtf8(const wchar_t *pwszWide, int *pbNoMemory);
-int         BFU_HostNameValid(const char *pszName);
+wchar_t    *BFU_Utf8ToWide(const char *pszUtf8, bool *pbNoMemory);
+char       *BFU_WideToUtf8(const wchar_t *pwszWide, bool *pbNoMemory);
+bool        BFU_HostNameValid(const char *pszName);
 const char *BFU_LastComponent(const char *pszImagePath);
 
 /* The end of the include guard. */

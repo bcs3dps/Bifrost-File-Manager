@@ -903,6 +903,7 @@ namespace BifrostFM
                 lstIdentity.AddRange(objCopy.CCA_lstOtherPaths);
                 lstIdentity.Add(objCopy.CCA_stExtract.EXO_uiWriteManifest.ToString(CultureInfo.InvariantCulture));
                 lstIdentity.Add(objCopy.CCA_stExtract.EXO_uiSetTimes.ToString(CultureInfo.InvariantCulture));
+                lstIdentity.Add(objCopy.CCA_stExtract.EXO_uiFollowLinks.ToString(CultureInfo.InvariantCulture));
                 lstIdentity.Add(objCopy.CCA_stImport.IMO_uiFileMode.ToString(CultureInfo.InvariantCulture));
                 lstIdentity.Add(objCopy.CCA_stImport.IMO_uiDirMode.ToString(CultureInfo.InvariantCulture));
                 lstIdentity.Add(objCopy.CCA_stImport.IMO_uiUid.ToString(CultureInfo.InvariantCulture));

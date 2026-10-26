@@ -345,6 +345,15 @@ namespace BifrostFM
                         return("Check Filesystem runs e2fsck, which checks only ext2, ext3 and ext4 filesystems; the open filesystem is FAT or exFAT.");
                     }
 
+                    if (Sys_enmMode == MOD_enmMode.Open && Sys_uiVolumeType == ENG_clsNative.ENG_VOLTYPE_SQUASHFS)
+                    {   /* The open filesystem is squashfs: refused here   */
+                        /* for the FAT test's reasons -- e2fsck cannot     */
+                        /* read it, and going on would close it and its    */
+                        /* editors for nothing.  The window greys Check    */
+                        /* for it too (MainCommand.cs).                    */
+                        return("Check Filesystem runs e2fsck, which checks only ext2, ext3 and ext4 filesystems; the open filesystem is squashfs.");
+                    }
+
                     /* Let it run; its sequence checks each step. */
                     return("");
                 case KND_enmKind.OpenPartition:
@@ -717,6 +726,50 @@ namespace BifrostFM
         }
 
         /*--------------------------------------------------------------------*/
+        /* Sys_RefuseReadOnlyFilesystem:                                      */
+        /*                                                                    */
+        /* Refuse a change to a filesystem nothing can write -- squashfs --   */
+        /* with a notice the user must close (OK alone), so the refusal is    */
+        /* never only a status line.  A change request runs this before any   */
+        /* question of its own (a Delete's, a name, a copy's conflicts), so   */
+        /* a squashfs session asks nothing about a change that cannot         */
+        /* happen; and one request -- a drop of many files is one -- gets one */
+        /* notice and is refused whole, before anything is copied.            */
+        /* Sys_FirstChange runs it too, for the changes that reach write      */
+        /* access with no question first (an editor's Save, New File).        */
+        /*                                                                    */
+        /* Arguments:                                                         */
+        /*     objRequest : the change being attempted; the notice shows over */
+        /*                  the window it came from.                          */
+        /*                                                                    */
+        /* Returns:                                                           */
+        /*     RSL_clsResult : SYS_OK when the open filesystem may be         */
+        /*                     written (or nothing marks it unwritable);      */
+        /*                     SYS_REFUSED, after the notice, for squashfs.   */
+        /*--------------------------------------------------------------------*/
+        private RSL_clsResult Sys_RefuseReadOnlyFilesystem(RQT_clsRequest objRequest)
+        {
+            if (Sys_uiVolumeType != ENG_clsNative.ENG_VOLTYPE_SQUASHFS)
+            {   /* Not squashfs: nothing refused here.  Whether the change   */
+                /* may go ahead is still the caller's -- the risk question   */
+                /* and the writable reopen come after.                       */
+                return(new RSL_clsResult(SYS_OK, "", null));
+            }
+
+            /* The notice, over the window the request came from, and   */
+            /* waited for; its answer means nothing (OK alone), so it   */
+            /* is not read.  A drag's extract, which can ask nothing,   */
+            /* never comes here: it changes nothing in the image.       */
+            SYS_Ask(QNK_enmQuestionKind.ReadOnlyFilesystem, objRequest, objRequest.RQT_lOrigin);
+
+            /* Refused: no risk question and no close -- a writable    */
+            /* reopen would only be refused by the engine, after the   */
+            /* editors had been asked about a close that changes       */
+            /* nothing.  The reason also goes to the status line.      */
+            return(new RSL_clsResult(SYS_REFUSED, "squashfs is a read-only filesystem: nothing in it can be changed.", null));
+        }
+
+        /*--------------------------------------------------------------------*/
         /* Sys_FirstChange:                                                   */
         /*                                                                    */
         /* Before the first change to a filesystem opened read-only: ask (the */
@@ -724,7 +777,9 @@ namespace BifrostFM
         /* reopen the same target writable.  The epoch is kept, so the        */
         /* editors stay registered and their work stays valid.  Every caller  */
         /* that changes the filesystem runs this first and goes on only on    */
-        /* success.                                                           */
+        /* success.  A squashfs filesystem is refused here, with the          */
+        /* read-only notice and no risk question: it cannot be written at     */
+        /* all.                                                               */
         /*                                                                    */
         /* Arguments:                                                         */
         /*     objRequest   : the change being attempted (its target is the   */
@@ -736,7 +791,8 @@ namespace BifrostFM
         /*     RSL_clsResult : OK only when the session is now writable; a    */
         /*                     No, a failed close, or a failed writable open  */
         /*                     otherwise (after which a read-only reopen is   */
-        /*                     tried, but the change still fails).            */
+        /*                     tried, but the change still fails); REFUSED    */
+        /*                     for squashfs.                                  */
         /*--------------------------------------------------------------------*/
         private RSL_clsResult Sys_FirstChange(RQT_clsRequest objRequest, EXC_clsExecution objExecution)
         {
@@ -747,6 +803,14 @@ namespace BifrostFM
             {   /* Already writable (an earlier change reopened it): nothing   */
                 /* to ask or reopen.                                           */
                 return(new RSL_clsResult(SYS_OK, "", null));
+            }
+
+            /* squashfs can never be written: refused at once, with the   */
+            /* read-only notice and no risk question or close.            */
+            objResult = Sys_RefuseReadOnlyFilesystem(objRequest);
+            if (objResult.RSL_iStatus != SYS_OK)
+            {   /* Refused: the notice has been shown; nothing to reopen. */
+                return(objResult);
             }
 
             if (Sys_bRiskWarnings && !Sys_Yes(QNK_enmQuestionKind.Risk, objRequest, objRequest.RQT_lOrigin))

@@ -101,10 +101,10 @@ typedef struct BFCK_Run
     size_t            cbLine;                   // bytes of a partial line held in szLine between reads
     char              szLine[BFCK_LINE_BYTES];  // the partial line
     char              szChunk[BFCK_READ_BYTES];// one read's worth of the report file
-    int               bCancelled;           // TRUE once the callback asked to stop
+    bool              bCancelled;           // true once the callback asked to stop
     int               iExit;                // e2fsck's exit status so far (FSCK_* bits)
-    int               bChanged;             // TRUE when the filesystem was written to
-    int               bErrorsLeft;          // TRUE when it still has errors at the end
+    bool              bChanged;             // true when the filesystem was written to
+    bool              bErrorsLeft;          // true when it still has errors at the end
     int               iOpenFlags;           // the EXT2_FLAG_* set the filesystem was opened with (unix.c's flags)
     errcode_t         retval;               // unix.c's retval
     errcode_t         retval2;              // unix.c's retval2 (the descriptor check)
@@ -170,7 +170,7 @@ static void BFCK_Deliver(uint32_t uiKind, const char *pszText, uint32_t uiPass,
         /* between units of work and honour at their next step, so the run    */
         /* winds down the way e2fsck does on Ctrl-C; bCancelled is what the   */
         /* result's return code is then taken from.                           */
-        BFCK_run.bCancelled = TRUE;
+        BFCK_run.bCancelled = true;
 
         if (BFCK_run.ctx != NULL)
         {   /* The context exists (it always does once events flow). */
@@ -187,13 +187,13 @@ static void BFCK_Deliver(uint32_t uiKind, const char *pszText, uint32_t uiPass,
 /* held until the rest arrives, or until the final pump.                      */
 /*                                                                            */
 /* Arguments:                                                                 */
-/*     bFinal : TRUE at the end of the run, to deliver a last unterminated    */
+/*     bFinal : true at the end of the run, to deliver a last unterminated    */
 /*              line.                                                         */
 /*                                                                            */
 /* Returns:                                                                   */
 /*     void : every complete line has been delivered.                         */
 /*----------------------------------------------------------------------------*/
-static void BFCK_PumpLog(int bFinal)
+static void BFCK_PumpLog(bool bFinal)
 {
     size_t cbRead;
     size_t i;
@@ -292,7 +292,7 @@ static int BFCK_Progress(e2fsck_t ctx, int iPass, unsigned long ulCur, unsigned 
     /* written and not only at the end; then where the pass has got to --   */
     /* remembering which pass it is, for a rebuild's spinner                */
     /* (e2fsck_simple_progress).                                            */
-    BFCK_PumpLog(FALSE);
+    BFCK_PumpLog(false);
 
     if (iPass != 0)
     {   /* A pass under way, not the end-of-pass marker. */
@@ -367,7 +367,7 @@ int e2fsck_simple_progress(e2fsck_t ctx, const char *pszLabel, float fPercent, u
     uiUnused  = uiUnused;
 
     /* Keep the text flowing while the rebuild runs. */
-    BFCK_PumpLog(FALSE);
+    BFCK_PumpLog(false);
 
     if (BFCK_run.uiLastPass != 0 && fPercent >= 0.0f && fPercent <= 100.0f)
     {   /* A pass is known and the figure is sane: the rebuild's share, in   */
@@ -627,7 +627,7 @@ static int BFCK_OpenReport(e2fsck_t ctx)
 static void BFCK_CloseReport(void)
 {
     /* The last lines, an unterminated one included. */
-    BFCK_PumpLog(TRUE);
+    BFCK_PumpLog(true);
 
     if (BFCK_run.pfRead != NULL)
     {   /* The reading handle. */
@@ -688,7 +688,7 @@ static void BFCK_ReportUnsupported(e2fsck_t ctx, const __u32 *auiFeature)
 /* unix.c's commentary on a filesystem that would not open, printed after     */
 /* com_err's one line: e2fsck's hint for the reason, and, for a corrupt       */
 /* superblock, the offer to try again ignoring its errors, which the caller   */
-/* acts on.  The caller aborts when this returns FALSE.                       */
+/* acts on.  The caller aborts when this returns false.                       */
 /*                                                                            */
 /* Arguments:                                                                 */
 /*     ctx    : e2fsck's context.                                             */
@@ -696,10 +696,10 @@ static void BFCK_ReportUnsupported(e2fsck_t ctx, const __u32 *auiFeature)
 /*     pctx   : a cleared problem context for the fix_problem calls.          */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : TRUE when the caller should retry the open with                  */
-/*           EXT2_FLAG_IGNORE_SB_ERRORS added; FALSE when it should abort.    */
+/*     bool : true when the caller should retry the open with                 */
+/*            EXT2_FLAG_IGNORE_SB_ERRORS added; false when it should abort.   */
 /*----------------------------------------------------------------------------*/
-static int BFCK_ReportOpenFailure(e2fsck_t ctx, errcode_t retval, struct problem_context *pctx)
+static bool BFCK_ReportOpenFailure(e2fsck_t ctx, errcode_t retval, struct problem_context *pctx)
 {
     /* e2fsck's one-line error first, in its own words; the hint follows. */
     com_err(ctx->program_name, retval, "while trying to open %s", ctx->filesystem_name);
@@ -709,13 +709,13 @@ static int BFCK_ReportOpenFailure(e2fsck_t ctx, errcode_t retval, struct problem
         log_out(ctx, "%s", "The filesystem revision is apparently too high for this version of e2fsck.\n"
                            "(Or the filesystem superblock is corrupt)\n\n");
         fix_problem(ctx, PR_0_SB_CORRUPT, pctx);
-        return(FALSE);
+        return(false);
     }
 
     if (retval == EXT2_ET_SHORT_READ)
     {   /* Nothing where the superblock should be. */
         log_out(ctx, "%s", "Could this be a zero-length partition?\n");
-        return(FALSE);
+        return(false);
     }
 
     if (retval == EPERM || retval == EACCES)
@@ -729,31 +729,31 @@ static int BFCK_ReportOpenFailure(e2fsck_t ctx, errcode_t retval, struct problem
             log_out(ctx, "You must have %s access to the filesystem or be root\n", "r/w");
         }
 
-        return(FALSE);
+        return(false);
     }
 
     if (retval == ENXIO)
     {   /* No device behind the name. */
         log_out(ctx, "%s", "Possibly non-existent or swap device?\n");
-        return(FALSE);
+        return(false);
     }
 
     if (retval == EBUSY)
     {   /* Someone else has it. */
         log_out(ctx, "%s", "Filesystem mounted or opened exclusively by another program?\n");
-        return(FALSE);
+        return(false);
     }
 
     if (retval == ENOENT)
     {   /* Nothing by that name. */
         log_out(ctx, "%s", "Possibly non-existent device?\n");
-        return(FALSE);
+        return(false);
     }
 
     if (retval == EROFS)
     {   /* Write-protected media. */
         log_out(ctx, "%s", "Disk write-protected; use the -n option to do a read-only\ncheck of the device.\n");
-        return(FALSE);
+        return(false);
     }
 
     if ((retval == EXT2_ET_CORRUPT_SUPERBLOCK || retval == EXT2_ET_BAD_DESC_SIZE) &&
@@ -762,14 +762,14 @@ static int BFCK_ReportOpenFailure(e2fsck_t ctx, errcode_t retval, struct problem
         /* answer is to load it anyway, errors and all, and let the passes   */
         /* repair what they can.  Once only.                                 */
         log_out(ctx, "%s: Trying to load superblock despite errors...\n", ctx->program_name);
-        return(TRUE);
+        return(true);
     }
 
     /* Anything else: a corrupt superblock, reported as such (unix.c would     */
     /* also print its "looks like a FAT / NTFS" guesses on a bad magic; that   */
     /* code is not compiled into the engine).                                  */
     fix_problem(ctx, PR_0_SB_CORRUPT, pctx);
-    return(FALSE);
+    return(false);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -781,12 +781,12 @@ static int BFCK_ReportOpenFailure(e2fsck_t ctx, errcode_t retval, struct problem
 /* fatal error.                                                               */
 /*                                                                            */
 /* Arguments:                                                                 */
-/*     bFatal : TRUE after a fatal error landed in the setjmp target.         */
+/*     bFatal : true after a fatal error landed in the setjmp target.         */
 /*                                                                            */
 /* Returns:                                                                   */
 /*     void : the engine is as it was before the run.                         */
 /*----------------------------------------------------------------------------*/
-static void BFCK_Finish(int bFatal)
+static void BFCK_Finish(bool bFatal)
 {
     e2fsck_t ctx;
 
@@ -812,7 +812,7 @@ static void BFCK_Finish(int bFatal)
         }
 
         /* The text e2fsck wrote on its way out, before its log file goes. */
-        BFCK_PumpLog(FALSE);
+        BFCK_PumpLog(false);
 
         /* The external-journal name, which unix.c also frees itself before   */
         /* the context (the context's free does not).                         */
@@ -929,15 +929,15 @@ BFE_API int BFE_CheckFs(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t u
     struct problem_context            pctx;
     e2fsck_t                          ctx;
     char                             *pszUtf8;
-    int                               bNoMemory;
+    bool                              bNoMemory;
     uint32_t                          uiSystem;
     int                               iAccess;
     int                               iStatus;
     int                               iError;
-    int                               bRepair;
+    bool                              bRepair;
     int volatile                      iRun;
     __u32                             auiFeature[3];
-    int volatile                      bPrintUnsupported;
+    bool volatile                     bPrintUnsupported;
     struct ext2_super_block *volatile sb;
     struct ext2fs_journal_params      jparams;
     int                               iConfigure;
@@ -947,7 +947,7 @@ BFE_API int BFE_CheckFs(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t u
 
     /* The gate: the busy flag only -- "no image open" is tested just   */
     /* below with its own message.                                      */
-    iStatus = BFX_Enter(FALSE, FALSE);
+    iStatus = BFX_Enter(false, false);
 
     if (iStatus != BFE_OK)
     {   /* Another call is running: BFX_Enter has said so, and the flag is   */
@@ -1075,7 +1075,7 @@ BFE_API int BFE_CheckFs(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t u
 
     /* A repair rewrites the filesystem's structure, so every write it makes   */
     /* to a device is read back (a report-only run writes nothing).            */
-    BFD_SetVerify(TRUE);
+    BFD_SetVerify(true);
 
     /* STEP 3: e2fsck's context, set up as PRS() in unix.c sets it up for        */
     /* "-f" plus "-n" or "-y": no prompts, every answer decided, a full check.   */
@@ -1124,7 +1124,7 @@ BFE_API int BFE_CheckFs(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t u
     {   /* Out of memory converting the path: refused as that.  BFCK_Finish   */
         /* undoes everything from here on.                                    */
         iStatus = BFX_Fail(BFE_ERR_NO_MEMORY, "out of memory converting the image path");
-        BFCK_Finish(FALSE);
+        BFCK_Finish(false);
         return(iStatus);
     }
 
@@ -1132,7 +1132,7 @@ BFE_API int BFE_CheckFs(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t u
     {   /* An unpaired surrogate in the path.  BFCK_Finish undoes   */
         /* everything from here on.                                 */
         iStatus = BFX_Fail(BFE_ERR_ARG, "the image path is not valid UTF-16");
-        BFCK_Finish(FALSE);
+        BFCK_Finish(false);
         return(iStatus);
     }
 
@@ -1149,7 +1149,7 @@ BFE_API int BFE_CheckFs(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t u
     {   /* Out of memory.  The context exists now, so from here every   */
         /* refusal goes through BFCK_Finish, which undoes it all.       */
         iStatus = BFX_Fail(BFE_ERR_NO_MEMORY, "cannot allocate e2fsck's profile: %s", error_message(BFCK_run.retval));
-        BFCK_Finish(FALSE);
+        BFCK_Finish(false);
         return(iStatus);
     }
 
@@ -1161,7 +1161,7 @@ BFE_API int BFE_CheckFs(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t u
         /* (while the flag was held); BFCK_Finish then undoes the context,   */
         /* the error tables, any half-made report file, the locks and the    */
         /* flag.  No filesystem has been opened, so nothing was written.     */
-        BFCK_Finish(FALSE);
+        BFCK_Finish(false);
         return(iStatus);
     }
 
@@ -1182,7 +1182,7 @@ BFE_API int BFE_CheckFs(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t u
         }
         else
         {   /* Never got open: nothing was checked, so nothing is known good. */
-            BFCK_run.bErrorsLeft = TRUE;
+            BFCK_run.bErrorsLeft = true;
         }
 
         /* The verdict into the result, then everything released, the   */
@@ -1191,7 +1191,7 @@ BFE_API int BFE_CheckFs(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t u
         pResult->bModified   = BFCK_run.bChanged;
         pResult->bErrorsLeft = BFCK_run.bErrorsLeft;
 
-        BFCK_Finish(TRUE);
+        BFCK_Finish(true);
 
         if (BFCK_run.bCancelled)
         {   /* The abort was the caller's own cancel.  The bare code is       */
@@ -1236,7 +1236,7 @@ restart:
     ctx->openfs_flags = BFCK_run.iOpenFlags;
     BFCK_run.retval   = BFCK_TryOpen(ctx, BFCK_run.iOpenFlags, &BFCK_run.fs);
     BFCK_run.retval2  = 0;
-    bPrintUnsupported = FALSE;
+    bPrintUnsupported = false;
 
     if (BFCK_run.retval == 0)
     {   /* Open: the group descriptors get e2fsck's stricter look. */
@@ -1334,7 +1334,7 @@ restart:
 
         if (auiFeature[0] || auiFeature[1] || auiFeature[2])
         {   /* At least one bit to name. */
-            bPrintUnsupported = TRUE;
+            bPrintUnsupported = true;
         }
     }
 
@@ -1608,7 +1608,7 @@ failure:
         pResult->bModified   = BFCK_run.bChanged;
         pResult->bErrorsLeft = BFCK_run.bErrorsLeft;
 
-        BFCK_Finish(TRUE);
+        BFCK_Finish(true);
 
         if (BFCK_run.bCancelled)
         {   /* The caller's own cancel: the bare code, no text recorded, as at   */
@@ -1927,7 +1927,7 @@ skip_write:
     /* The filesystem is closed properly here -- a repair's last writes made   */
     /* real -- and everything else released.                                   */
     ctx->flags &= ~E2F_FLAG_SETJMP_OK;
-    BFCK_Finish(FALSE);
+    BFCK_Finish(false);
 
     if (BFCK_run.bCancelled)
     {   /* The caller's cancel: the result is filled, the code says cancelled. */

@@ -11,8 +11,8 @@
 /* bfe_mkfs.c, the device and raw-image calls in bfe_image.c, the batched     */
 /* raw write in bfe_rawbatch.c, the check in bfe_fsck.c, the resize in        */
 /* bfe_resize.c and the capacity test in bfe_capacity.c.  Every one of them   */
-/* passes the gate here first (BFX_Enter, or BFX_EnterAnyFs for a call that   */
-/* answers for a FAT session too).                                            */
+/* passes the gate here first (BFX_Enter, or BFX_EnterKinds for a call that   */
+/* answers for more kinds of filesystem than ext2/3/4).                       */
 /*                                                                            */
 /* HOW A SESSION WORKS.  BFE_Open mounts the image ONCE and it stays mounted  */
 /* until BFE_Close, so browsing costs a directory read rather than a mount    */
@@ -23,16 +23,21 @@
 /* WHY EVERY CALL IS SERIALISED.  lwext4 keeps the mount, the block cache and */
 /* the journal in static state and is given no lock functions, so two calls   */
 /* at once would corrupt it.  Rather than trust every caller, each public     */
-/* function passes BFX_Enter first, which takes one atomic busy flag and      */
-/* returns BFE_ERR_BUSY if it is already held.                                */
+/* function passes the gate first (BFX_Enter or BFX_EnterKinds), which takes  */
+/* one atomic busy flag and returns BFE_ERR_BUSY if it is already held.       */
 /*                                                                            */
-/* A FAT SESSION.  A range that holds no ext2/3/4 filesystem is tried as FAT  */
-/* or exFAT, through FatFs (bfe_fat.c), read-only or writable as asked.  It   */
-/* answers every session call taught FAT (they pass BFX_EnterAnyFs and reach  */
-/* FatFs through bfe_fs.c and the FAT arms); the gate (BFX_Enter) refuses the */
-/* rest -- modes, owners, links -- with BFE_ERR_UNSUPPORTED, so a call that   */
-/* has not been taught FAT can never reach lwext4 with no lwext4 mount        */
-/* behind it.                                                                 */
+/* OTHER KINDS OF FILESYSTEM.  A range that holds no ext2/3/4 filesystem is   */
+/* tried as squashfs, through squashfuse (bfe_sqfs.c), read-only only -- its  */
+/* magic decides -- and failing that as FAT or exFAT, through FatFs           */
+/* (bfe_fat.c), read-only or writable as asked.  The session's kind           */
+/* (bfe_internal.h's BFX_enmFsKind) decides which library every call          */
+/* reaches: each session call names the kinds it handles (BFX_EnterKinds)     */
+/* and switches on the kind, a case per library; the gate refuses a kind a    */
+/* call has not been taught -- FAT's calls for modes, owners and links with   */
+/* BFE_ERR_UNSUPPORTED, every change on squashfs with BFE_ERR_READ_ONLY --    */
+/* so no call can reach a library with no mount of that library behind it.    */
+/* What a kind is like (writable, Unix facts, FAT's names) is its row of      */
+/* BFX_FS_TRAITS, below.                                                      */
 /*                                                                            */
 /* A DEVICE AS THE IMAGE.  Since API version 4 the path BFE_Open takes may    */
 /* name a real disk or volume.  The block device underneath treats the two    */
@@ -59,26 +64,28 @@
 #include <ext4_types.h>
 #include <ext4_misc.h>
 
-/* The C library: formatted text (the error line), memory, strings, the        */
-/* variable argument list BFX_Fail takes, bool for lwext4's calls, the errno   */
-/* values lwext4 returns, the clock for new times, and wide strings.           */
+/* The C library: formatted text (the error line), memory, strings, the       */
+/* variable argument list BFX_Fail takes, the errno values lwext4 returns,    */
+/* the clock for new times, and wide strings.  bool comes with the engine's   */
+/* shared internals below.                                                    */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
-#include <stdbool.h>
 #include <errno.h>
 #include <time.h>
 #include <wchar.h>
 
 /* The engine's own: the shared internals, the block device lwext4 reads and   */
 /* writes through, the raw device layer (its system-disk guard and volume      */
-/* locks), the FAT session's calls (bfe_fat.c), and the filesystem-neutral     */
-/* file calls (bfe_fs.c) every file-level change and link read goes through.   */
+/* locks), the FAT session's calls (bfe_fat.c), the squashfs session's calls   */
+/* (bfe_sqfs.c), and the filesystem-neutral file calls (bfe_fs.c) every        */
+/* file-level change and link read goes through.                               */
 #include "bfe_internal.h"
 #include "bfe_blockdev.h"
 #include "bfe_device.h"
 #include "bfe_fat.h"
+#include "bfe_sqfs.h"
 #include "bfe_fs.h"
 
 /*----------------------------------------------------------------------------*/
@@ -93,23 +100,42 @@
 /* reads or writes any of this.  (The flag itself is the exception: it is     */
 /* touched only through GCC's atomic builtins, never by a plain read.)        */
 /*                                                                            */
-/* BFX_Enter's own refusals write BFX_szLastError just AFTER releasing        */
-/* the flag, so for that one write the rule above does not hold.  THE DEFECT  */
-/* EXISTS AND IS INTENTIONALLY DEFERRED: the program makes every engine call  */
-/* from its one worker thread, so no second call can enter in between.        */
+/* The gate's own refusals (Bfx_EnterGate, behind BFX_Enter and               */
+/* BFX_EnterKinds) write BFX_szLastError just AFTER releasing the flag, so    */
+/* for that one write the rule above does not hold.  THE DEFECT EXISTS AND IS */
+/* INTENTIONALLY DEFERRED: the program makes every engine call from its one   */
+/* worker thread, so no second call can enter in between.                     */
 /*----------------------------------------------------------------------------*/
 static volatile int        BFX_iBusy;                        // 1 while a public call is running; taken and released atomically
-static int                 BFX_bOpen;                        // TRUE while an image is mounted
-static int                 BFX_iFsKind;                      // BFX_FS_EXT or BFX_FS_FAT: which library holds the open session's filesystem; read only while BFX_bOpen
-static int                 BFX_bReadOnly;                    // TRUE when the open session was opened read-only
-static int                 BFX_bJournalOn;                   // TRUE while a writable session's journal is started and not stopped since -- what BFE_Flush and BFE_Close stop; FALSE on a read-only session, and once a stop or restart failed (lwext4 has then let the journal go)
-static int                 BFX_bChangesBarred;               // TRUE once a flush could not checkpoint or restart the journal: every further change of the session is refused (BFX_Enter), until it is closed
+static bool                BFX_bOpen;                        // true while an image is mounted
+static int                 BFX_iFsKind;                      // a BFX_enmFsKind value: which library holds the open session's filesystem; read only while BFX_bOpen
+static bool                BFX_bReadOnly;                    // true when the open session was opened read-only
+static bool                BFX_bJournalOn;                   // true while a writable session's journal is started and not stopped since -- what BFE_Flush and BFE_Close stop; false on a read-only session, and once a stop or restart failed (lwext4 has then let the journal go)
+static bool                BFX_bChangesBarred;               // true once a flush could not checkpoint or restart the journal: every further change of the session is refused (the gate, Bfx_EnterGate), until it is closed
 static struct ext4_sblock *BFX_pSuperblock;                  // the mounted superblock; valid only while BFX_bOpen
 static BFV_Locks           BFX_locks;                        // the volumes locked for a writable DEVICE session; empty otherwise
-static int                 BFX_bVerifySessions;              // TRUE: a session's device writes are read back (BFE_SetWriteVerify); FALSE by default
-static int                 BFX_bSessionCall;                 // TRUE while the running call works inside the open session (BFX_Enter's bNeedOpen); read by BFX_Fail
+static bool                BFX_bVerifySessions;              // true: a session's device writes are read back (BFE_SetWriteVerify); false by default
+static bool                BFX_bSessionCall;                 // true while the running call works inside the open session (the gate's bNeedOpen); read by BFX_Fail
 static uint32_t            BFX_uiEnterGeneration;            // BFD_Generation() as the running call entered: a different value later means the call configured the block device itself; read by BFX_Fail
 static char                BFX_szLastError[BFX_ERROR_BYTES]; // detail line of the last failure, UTF-8
+
+/*----------------------------------------------------------------------------*/
+/* The traits of each filesystem kind -- documentation table, one row per     */
+/* BFX_enmFsKind value, in its order (the enum's value is the row's index).   */
+/* Read through BFX_FsTraits; bfe_internal.h's BFX_strctFsTraits says what    */
+/* each field means.  A kind added to the enum gets its row here.             */
+/*----------------------------------------------------------------------------*/
+static const BFX_strctFsTraits BFX_FS_TRAITS[BFX_FS_COUNT] =
+{
+    /* BFX_FS_EXT: lwext4 holds it; writable, Unix facts kept, names are bytes. */
+    { true,  true,  false, "this call does not work on an ext2/3/4 filesystem" },
+
+    /* BFX_FS_FAT: FatFs holds it; writable, no modes, owners or links, FAT's names. */
+    { true,  false, true,  "FAT and exFAT have no Unix modes, owners or links" },
+
+    /* BFX_FS_SQFS: squashfuse reads it; never writable, Unix facts kept, names are bytes. */
+    { false, true,  false, "squashfs is a read-only filesystem: nothing in it can be changed" }
+};
 
 /*------------------------------------------------------------------------------*/
 /* BFX_Fail:                                                                    */
@@ -130,9 +156,10 @@ static char                BFX_szLastError[BFX_ERROR_BYTES]; // detail line of t
 /* the busy flag back (BFX_Leave), never after.  While the flag is held no      */
 /* other call can write the line, so the line the caller then reads is its      */
 /* own call's.  Written after the release, another call could overwrite it in   */
-/* between and the user would be shown the wrong reason.  (BFX_Enter's refusals */
-/* are the one place the order is reversed -- a defect that exists and is       */
-/* intentionally deferred: the program's one worker thread never meets it.)     */
+/* between and the user would be shown the wrong reason.  (The gate's refusals, */
+/* Bfx_EnterGate's, are the one place the order is reversed -- a defect that    */
+/* exists and is intentionally deferred: the program's one worker thread never  */
+/* meets it.)                                                                   */
 /*                                                                              */
 /* Arguments:                                                                   */
 /*     iCode     : the BFE_ERR_* code being returned.                           */
@@ -237,29 +264,33 @@ int BFX_Fail(int iCode, const char *pszFormat, ...)
 /* Bfx_EnterGate:                                                             */
 /*                                                                            */
 /* The gate at the top of every public function, reached through BFX_Enter    */
-/* or BFX_EnterAnyFs.  It takes the busy flag, then checks that the session   */
+/* or BFX_EnterKinds.  It takes the busy flag, then checks that the session   */
 /* is in the state the function needs.  If either fails it releases the flag  */
 /* again itself, so the caller's whole failure path is "return the code".     */
 /*                                                                            */
-/* A call that needs the open session and has not said it handles FAT         */
-/* (bAnyFs FALSE) is refused on a FAT session, so code written for lwext4     */
-/* alone never runs with no lwext4 mount behind it.                           */
+/* A call that needs the open session names the kinds of filesystem it        */
+/* handles; a session of any other kind is refused, so code written for one   */
+/* library never runs with another library's mount behind it -- and a kind    */
+/* added later reaches no call until that call is taught it.                  */
 /*                                                                            */
 /* Arguments:                                                                 */
-/*     bNeedOpen  : TRUE when the function needs an image to be open.         */
-/*     bNeedWrite : TRUE when the function modifies the image.                */
-/*     bAnyFs     : TRUE when the function answers for a FAT session as well  */
-/*                  as an ext2/3/4 one.                                       */
+/*     bNeedOpen  : true when the function needs an image to be open.         */
+/*     bNeedWrite : true when the function modifies the image.                */
+/*     uiFsKinds  : the BFX_FSMASK_* bits of every kind the function handles  */
+/*                  (read only when bNeedOpen).                               */
 /*                                                                            */
 /* Returns:                                                                   */
 /*     int : BFE_OK with the busy flag HELD (the caller must BFX_Leave), or   */
 /*           BFE_ERR_BUSY / BFE_ERR_NOT_OPEN / BFE_ERR_READ_ONLY with the     */
 /*           flag not held -- or BFE_ERR_JOURNAL for a modifying call on a    */
 /*           session whose journal a flush lost (BFX_bChangesBarred), or      */
-/*           BFE_ERR_UNSUPPORTED for a call not taught FAT on a FAT session.  */
+/*           BFE_ERR_UNSUPPORTED for a call not taught the session's kind.    */
 /*----------------------------------------------------------------------------*/
-static int Bfx_EnterGate(int bNeedOpen, int bNeedWrite, int bAnyFs)
+static int Bfx_EnterGate(bool bNeedOpen, bool bNeedWrite, uint32_t uiFsKinds)
 {
+    const BFX_strctFsTraits *pTraits;
+    int                      iCode;
+
     /* Take the flag: set it to 1 atomically and look at what it was.  A       */
     /* plain "if (!busy) busy = 1" would let two threads both see 0 and both   */
     /* enter; the builtin makes the test and the set one indivisible step,     */
@@ -303,17 +334,29 @@ static int Bfx_EnterGate(int bNeedOpen, int bNeedWrite, int bAnyFs)
         return(BFX_Fail(BFE_ERR_NOT_OPEN, "no image is open"));
     }
 
-    if (bNeedOpen && !bAnyFs && BFX_iFsKind == BFX_FS_FAT)
-    {   /* A session call written for lwext4 alone, on a FAT session: it      */
-        /* would ask lwext4 about a mount that does not exist.  The calls     */
-        /* left are those for modes, owners and links, which FAT has no       */
-        /* place for, and the message says so.  Refused before the            */
-        /* read-only test below, so the user is told what is missing rather   */
-        /* than only that the session cannot be written.                      */
+    if (bNeedOpen && (uiFsKinds & (1u << BFX_iFsKind)) == 0)
+    {   /* A session call not taught the open session's kind: it would ask     */
+        /* a library about a mount that library does not hold.  Refused        */
+        /* before the read-only test below, with the kind's own reason (its    */
+        /* traits row), so the user is told what is missing rather than only   */
+        /* that the session cannot be written -- FAT's calls for modes,        */
+        /* owners and links say FAT has none.  A change on a kind that is      */
+        /* never writable is READ_ONLY rather than UNSUPPORTED: that is what   */
+        /* stands in its way.                                                  */
+        pTraits = &BFX_FS_TRAITS[BFX_iFsKind];
+
+        if (bNeedWrite && !pTraits->bWritable)
+        {   /* A change, on a filesystem nothing can change. */
+            iCode = BFE_ERR_READ_ONLY;
+        }
+        else
+        {   /* A call this kind has no place for. */
+            iCode = BFE_ERR_UNSUPPORTED;
+        }
 
         /* Refuse, releasing the flag here as above. */
         __sync_lock_release(&BFX_iBusy);
-        return(BFX_Fail(BFE_ERR_UNSUPPORTED, "FAT and exFAT have no Unix modes, owners or links"));
+        return(BFX_Fail(iCode, "%s", pTraits->pszUntaught));
     }
 
     if (bNeedWrite && BFX_bReadOnly)
@@ -345,43 +388,46 @@ static int Bfx_EnterGate(int bNeedOpen, int bNeedWrite, int bAnyFs)
 /* BFX_Enter:                                                                 */
 /*                                                                            */
 /* The gate for a public function that works on ext2/3/4 alone -- the calls   */
-/* for modes, owners and links, which FAT has no place for, and the calls     */
-/* that need no session -- so on a FAT session a session call is refused at   */
-/* the door (Bfx_EnterGate says how and why).                                 */
+/* for modes, owners and links, which FAT has no place for -- and for the     */
+/* calls that need no session: on a session of any other kind a session call  */
+/* is refused at the door (Bfx_EnterGate says how and why).                   */
 /*                                                                            */
 /* Arguments:                                                                 */
-/*     bNeedOpen  : TRUE when the function needs an image to be open.         */
-/*     bNeedWrite : TRUE when the function modifies the image.                */
+/*     bNeedOpen  : true when the function needs an image to be open.         */
+/*     bNeedWrite : true when the function modifies the image.                */
 /*                                                                            */
 /* Returns:                                                                   */
 /*     int : Bfx_EnterGate's result: BFE_OK with the busy flag held, or a     */
 /*           refusal with it released.                                        */
 /*----------------------------------------------------------------------------*/
-int BFX_Enter(int bNeedOpen, int bNeedWrite)
+int BFX_Enter(bool bNeedOpen, bool bNeedWrite)
 {
-    /* The gate, refusing a FAT session for a call that needs one open. */
-    return(Bfx_EnterGate(bNeedOpen, bNeedWrite, FALSE));
+    /* The gate, admitting an ext2/3/4 session only for a call that needs one. */
+    return(Bfx_EnterGate(bNeedOpen, bNeedWrite, BFX_FSMASK_EXT));
 }
 
 /*----------------------------------------------------------------------------*/
-/* BFX_EnterAnyFs:                                                            */
+/* BFX_EnterKinds:                                                            */
 /*                                                                            */
-/* The gate for a public function that answers for a FAT session as well as   */
-/* an ext2/3/4 one -- it tests BFX_iFsKind itself and sends a FAT session's   */
-/* work to bfe_fat.c.                                                         */
+/* The gate for a public function that needs the open session and answers     */
+/* for more than ext2/3/4 -- it, or the engine function it calls (bfe_fs.c's, */
+/* BFX_FillEntry, BFX_CollectNames), switches on BFX_FsKind and sends each    */
+/* kind's work to that kind's library.  The kinds are named at the call, so   */
+/* a reader sees at the top of every such function which filesystems it       */
+/* handles, and a kind not named is refused at the door.                      */
 /*                                                                            */
 /* Arguments:                                                                 */
-/*     bNeedOpen  : TRUE when the function needs an image to be open.         */
-/*     bNeedWrite : TRUE when the function modifies the image.                */
+/*     bNeedWrite : true when the function modifies the image.                */
+/*     uiFsKinds  : the BFX_FSMASK_* bits of every kind the function handles. */
 /*                                                                            */
 /* Returns:                                                                   */
 /*     int : Bfx_EnterGate's result: BFE_OK with the busy flag held, or a     */
 /*           refusal with it released.                                        */
 /*----------------------------------------------------------------------------*/
-int BFX_EnterAnyFs(int bNeedOpen, int bNeedWrite)
+int BFX_EnterKinds(bool bNeedWrite, uint32_t uiFsKinds)
 {
-    /* The gate, admitting either kind of session. */
-    return(Bfx_EnterGate(bNeedOpen, bNeedWrite, TRUE));
+    /* The gate, demanding an open session of one of the kinds named. */
+    return(Bfx_EnterGate(true, bNeedWrite, uiFsKinds));
 }
 
 /*----------------------------------------------------------------------------*/
@@ -416,9 +462,9 @@ void BFX_Leave(void)
 /*     None.                                                                  */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : TRUE while an image is open, FALSE otherwise.                    */
+/*     bool : true while an image is open, false otherwise.                   */
 /*----------------------------------------------------------------------------*/
-int BFX_IsOpen(void)
+bool BFX_IsOpen(void)
 {
     /* The flag BFE_Open sets and BFE_Close clears. */
     return(BFX_bOpen);
@@ -427,27 +473,87 @@ int BFX_IsOpen(void)
 /*----------------------------------------------------------------------------*/
 /* BFX_FsKind:                                                                */
 /*                                                                            */
-/* Which library holds the open session's filesystem, for the switches of     */
-/* bfe_fs.c, bfe_copy.c's FAT tests and this file's own.  With no session     */
-/* open the answer is ext2/3/4, the kind every                                */
-/* call that runs without a session (a format, a check) works on.  Call it    */
-/* only while holding the busy flag, like every other read of the state.      */
+/* Which library holds the open session's filesystem, for every switch on     */
+/* the kind -- bfe_fs.c's, this file's and bfe_copy.c's.  With no session     */
+/* open the answer is ext2/3/4, the kind every call that runs without a       */
+/* session (a format, a check) works on.  Call it only while holding the      */
+/* busy flag, like every other read of the state.                             */
 /*                                                                            */
 /* Arguments:                                                                 */
 /*     None.                                                                  */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : BFX_FS_FAT for an open FAT or exFAT session, else BFX_FS_EXT.    */
+/*     BFX_enmFsKind : the open session's kind, or BFX_FS_EXT with none open. */
 /*----------------------------------------------------------------------------*/
-int BFX_FsKind(void)
+BFX_enmFsKind BFX_FsKind(void)
 {
-    if (BFX_bOpen && BFX_iFsKind == BFX_FS_FAT)
-    {   /* A FAT session is open. */
-        return(BFX_FS_FAT);
+    if (BFX_bOpen)
+    {   /* A session is open: its kind, as BFE_Open recorded it. */
+        return((BFX_enmFsKind)BFX_iFsKind);
     }
 
-    /* An ext2/3/4 session, or none. */
+    /* No session: ext2/3/4, the kind the sessionless calls work on. */
     return(BFX_FS_EXT);
+}
+
+/*----------------------------------------------------------------------------*/
+/* BFX_FsTraits:                                                              */
+/*                                                                            */
+/* What the open session's filesystem is like (bfe_internal.h's               */
+/* BFX_strctFsTraits), for the code that tests a property -- whether Unix     */
+/* facts are kept, whether FAT's naming rules hold -- rather than which       */
+/* library runs.  Such a test asks the property, never "is this FAT?", so a   */
+/* kind added later answers it from its own row.  Call it holding the busy    */
+/* flag, as BFX_FsKind.                                                       */
+/*                                                                            */
+/* Arguments:                                                                 */
+/*     None.                                                                  */
+/*                                                                            */
+/* Returns:                                                                   */
+/*     const BFX_strctFsTraits * : the kind's row of BFX_FS_TRAITS -- the     */
+/*                                 ext2/3/4 row with no session open; never   */
+/*                                 NULL, and never to be changed.             */
+/*----------------------------------------------------------------------------*/
+const BFX_strctFsTraits *BFX_FsTraits(void)
+{
+    /* The row the kind indexes; BFX_FsKind answers ext2/3/4 with none open. */
+    return(&BFX_FS_TRAITS[BFX_FsKind()]);
+}
+
+/*----------------------------------------------------------------------------*/
+/* BFX_FsMaxFileBytes:                                                        */
+/*                                                                            */
+/* The largest file the open session's filesystem can hold, so a copy into    */
+/* it can refuse a larger one before anything is written.  A switch rather    */
+/* than a traits field because the answer depends on the volume, not only     */
+/* the kind: FAT12/16/32 stop at 4 GiB less a byte and exFAT does not         */
+/* (BFT_MaxFileBytes).  Call it holding the busy flag.                        */
+/*                                                                            */
+/* Arguments:                                                                 */
+/*     None.                                                                  */
+/*                                                                            */
+/* Returns:                                                                   */
+/*     uint64_t : the limit in bytes; UINT64_MAX where the kind sets none     */
+/*                that a copy could reach first (ext2/3/4: a full volume is   */
+/*                found as it fills); 0 for a kind no copy may write.         */
+/*----------------------------------------------------------------------------*/
+uint64_t BFX_FsMaxFileBytes(void)
+{
+    switch (BFX_FsKind())
+    {   /* One kind per case; a kind not listed refuses every file. */
+
+        /* ext2/3/4: no limit a copy meets before the volume fills. */
+        case BFX_FS_EXT:  return(UINT64_MAX);
+
+        /* FAT or exFAT: the volume's own limit. */
+        case BFX_FS_FAT:  return(BFT_MaxFileBytes());
+
+        /* squashfs: never written, so no file of any size goes in. */
+        case BFX_FS_SQFS: return(0);
+
+        /* A kind with no case here: nothing is written to it. */
+        default:          return(0);
+    }
 }
 
 /*----------------------------------------------------------------------------*/
@@ -509,38 +615,39 @@ int BFX_MapErrno(int rc)
     }
 }
 
-/*----------------------------------------------------------------------------*/
-/* BFX_PathValid:                                                             */
-/*                                                                            */
-/* Check an image path argument before it reaches the filesystem library, so  */
-/* that every path the engine works with is ABSOLUTE and CANONICAL -- one     */
-/* spelling per entry, which the engine's tests that one path is, or lies     */
-/* inside, another (a copy onto itself or into its own subtree, a rename into */
-/* its own subtree) rely on, as they compare paths as text.  Refusing here,   */
-/* once, covers every public call that takes an image path, whoever built     */
-/* it.  On a FAT or exFAT session FAT's own name rules apply as well; on      */
-/* ext2/3/4 a name is its bytes.                                              */
-/*                                                                            */
-/* This is the one read of the session's state made before a call's gate:     */
-/* the engine is driven from one worker thread (bifrost_engine.h's contract), */
-/* so nothing can change it in between.                                       */
-/*                                                                            */
-/* Arguments:                                                                 */
-/*     pszImagePath : the caller's path; may be NULL.                         */
-/*                                                                            */
-/* Returns:                                                                   */
-/*     int : TRUE when the path is non-NULL, absolute, and is "/" or has no   */
-/*           empty, "." or ".." component -- nor, on a FAT session, one made  */
-/*           of spaces and dots alone or one holding a character FAT forbids; */
-/*           FALSE otherwise.                                                 */
-/*----------------------------------------------------------------------------*/
-int BFX_PathValid(const char *pszImagePath)
+/*-----------------------------------------------------------------------------*/
+/* BFX_PathValid:                                                              */
+/*                                                                             */
+/* Check an image path argument before it reaches the filesystem library, so   */
+/* that every path the engine works with is ABSOLUTE and CANONICAL -- one      */
+/* spelling per entry, which the engine's tests that one path is, or lies      */
+/* inside, another (a copy onto itself or into its own subtree, a rename into  */
+/* its own subtree) rely on, as they compare paths as text.  Refusing here,    */
+/* once, covers every public call that takes an image path, whoever built      */
+/* it.  On a session whose kind keeps FAT's naming rules (its traits row: FAT  */
+/* and exFAT) those rules apply as well; on ext2/3/4 and squashfs a name is    */
+/* its bytes.                                                                  */
+/*                                                                             */
+/* This is the one read of the session's state made before a call's gate:      */
+/* the engine is driven from one worker thread (bifrost_engine.h's contract),  */
+/* so nothing can change it in between.                                        */
+/*                                                                             */
+/* Arguments:                                                                  */
+/*     pszImagePath : the caller's path; may be NULL.                          */
+/*                                                                             */
+/* Returns:                                                                    */
+/*     bool : true when the path is non-NULL, absolute, and is "/" or has no   */
+/*            empty, "." or ".." component -- nor, on a FAT session, one made  */
+/*            of spaces and dots alone or one holding a character FAT forbids; */
+/*            false otherwise.                                                 */
+/*-----------------------------------------------------------------------------*/
+bool BFX_PathValid(const char *pszImagePath)
 {
     const char   *pszComponent;
     size_t        cbComponent;
     size_t        i;
     unsigned char ucChar;
-    int           bFat;
+    bool          bFat;
 
     if (pszImagePath == NULL || pszImagePath[0] != '/')
     {   /* Missing, empty, or relative -- refused.  On ext2/3/4 lwext4 finds   */
@@ -548,16 +655,17 @@ int BFX_PathValid(const char *pszImagePath)
         /* point "/", so a relative path would match no mount and come back    */
         /* as "not found", telling the user a file is missing when the         */
         /* fault is the caller's argument.                                     */
-        return(FALSE);
+        return(false);
     }
 
     if (pszImagePath[1] == '\0')
     {   /* The root, "/": valid, and the only path that ends in '/'. */
-        return(TRUE);
+        return(true);
     }
 
-    /* Whether the FAT rule applies: a FAT or exFAT session is open. */
-    bFat = (BFX_FsKind() == BFX_FS_FAT);
+    /* Whether FAT's naming rules apply: the open session's kind keeps them   */
+    /* (its traits row -- FAT and exFAT do).                                  */
+    bFat = BFX_FsTraits()->bFatNames;
 
     /* Each component in turn: the text after a '/' up to the next '/' or   */
     /* the end.  Every '/' must be followed by a component, so the loop     */
@@ -578,7 +686,7 @@ int BFX_PathValid(const char *pszImagePath)
             /* name then points at the empty name, so a rename (ext4_frename)     */
             /* adds the new link and fails to remove the old one, and a copy      */
             /* from "/d/" onto "/d" copies each file onto itself.                 */
-            return(FALSE);
+            return(false);
         }
 
         if ((cbComponent == 1 && pszComponent[0] == '.') ||
@@ -587,7 +695,7 @@ int BFX_PathValid(const char *pszImagePath)
             /* resolves them through the directories' own "." and ".."        */
             /* entries, so "/d/./f" and "/d/x/../f" would name "/d/f" under   */
             /* other strings.                                                 */
-            return(FALSE);
+            return(false);
         }
 
         if (bFat && strspn(pszComponent, " .") >= cbComponent)
@@ -601,7 +709,7 @@ int BFX_PathValid(const char *pszImagePath)
             /* counts from the component's start and may run on past its '/',    */
             /* so it is the count reaching the component's length that says      */
             /* "all".                                                            */
-            return(FALSE);
+            return(false);
         }
 
         if (bFat)
@@ -630,7 +738,7 @@ int BFX_PathValid(const char *pszImagePath)
                     /* rest names FatFs refuses -- refused.  The byte is       */
                     /* never 0 here (the component stops before the NUL), so   */
                     /* strchr cannot match the string's own terminator.        */
-                    return(FALSE);
+                    return(false);
                 }
             }
         }
@@ -648,7 +756,7 @@ int BFX_PathValid(const char *pszImagePath)
     }
 
     /* An absolute, canonical path the session's library can resolve. */
-    return(TRUE);
+    return(true);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -663,8 +771,8 @@ int BFX_PathValid(const char *pszImagePath)
 /* tests cannot miss that they name one entry.  Letter case is left as it     */
 /* is: the FAT callers compare the canonical forms with FatFs's own fold      */
 /* (bfe_fat.c BFT_PathFoldPrefix, ff_wtoupper), which covers every letter     */
-/* FatFs folds, not only ASCII.  On ext2/3/4 the copy is exact, a name there  */
-/* being its bytes.                                                           */
+/* FatFs folds, not only ASCII.  On ext2/3/4 and squashfs the copy is exact,  */
+/* a name there being its bytes.                                              */
 /*                                                                            */
 /* The path must already have passed BFX_PathValid, which on FAT refuses a    */
 /* component of spaces and dots alone -- so no component here comes out       */
@@ -696,9 +804,10 @@ char *BFX_PathCanonical(const char *pszImagePath)
         return(NULL);
     }
 
-    if (BFX_FsKind() != BFX_FS_FAT)
-    {   /* ext2/3/4, or no session: every byte is part of a name, so the   */
-        /* canonical form is the path itself.                              */
+    if (!BFX_FsTraits()->bFatNames)
+    {   /* A kind whose names are their bytes (ext2/3/4), or no session:   */
+        /* every byte is part of a name, so the canonical form is the      */
+        /* path itself.                                                    */
         memcpy(pszCanonical, pszImagePath, cbPath + 1);
         return(pszCanonical);
     }
@@ -755,7 +864,8 @@ char *BFX_PathCanonical(const char *pszImagePath)
 /*     None.                                                                  */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     struct ext4_sblock * : the superblock; valid while an image is open.   */
+/*     struct ext4_sblock * : the superblock, valid while an ext2/3/4 image   */
+/*                            is open; NULL on a FAT or squashfs session.     */
 /*----------------------------------------------------------------------------*/
 struct ext4_sblock *BFX_Superblock(void)
 {
@@ -822,7 +932,8 @@ static uint32_t BFX_TypeFromMode(uint32_t uiMode)
 /*                                                                            */
 /* A time before 1970 is shown as a date near 2106 (see the time reads).  On  */
 /* a FAT session there is no inode: the facts come from FatFs, made up as a   */
-/* FAT listing shows them, with an errno-style result as here.                */
+/* FAT listing shows them, with an errno-style result as here.  On a          */
+/* squashfs session squashfuse reads the inode (BFQ_StatEntry).               */
 /*                                                                            */
 /* Arguments:                                                                 */
 /*     pszImagePath : the path whose inode to read.                           */
@@ -852,11 +963,11 @@ int BFX_FillEntry(const char *pszImagePath, const char *pszName, BFE_Entry *pEnt
     cbName = strlen(pszName);
 
     if (cbName > BFX_ENTRY_NAME_MAX)
-    {   /* Longer than any name either filesystem holds (ext4's 255 bytes,    */
-        /* FAT's 765 -- szName holds the longer whole, BFX_ENTRY_NAME_MAX):   */
-        /* a guard, clamped so the copy cannot overrun.  It would cut only    */
-        /* the entry's shown name, never a path, which the caller holds       */
-        /* whole.                                                             */
+    {   /* Longer than any name a filesystem the engine reads holds (ext4's    */
+        /* 255 bytes, squashfs's 256, FAT's 765 -- szName holds the longest    */
+        /* whole, BFX_ENTRY_NAME_MAX): a guard, clamped so the copy cannot     */
+        /* overrun.  It would cut only the entry's shown name, never a path,   */
+        /* which the caller holds whole.                                       */
         cbName = BFX_ENTRY_NAME_MAX;
     }
 
@@ -865,12 +976,30 @@ int BFX_FillEntry(const char *pszImagePath, const char *pszName, BFE_Entry *pEnt
     pEntry->szName[cbName] = '\0';
     pEntry->uiNameBytes    = (uint32_t)cbName;
 
-    if (BFX_FsKind() == BFX_FS_FAT)
-    {   /* A FAT session: no inode to read.  FatFs's item for the path       */
-        /* fills the facts (the root described without it), and its result   */
-        /* is errno-style, as the lwext4 read below gives -- ENOENT for a    */
-        /* path that does not exist.                                         */
-        return(BFT_StatEntry(pszImagePath, pEntry));
+    switch (BFX_FsKind())
+    {   /* Which library reads the facts; every kind other than ext2/3/4   */
+        /* returns from its case, and ext2/3/4 goes on to lwext4 below.    */
+
+        case BFX_FS_EXT:
+            /* ext2/3/4: the inode is read below. */
+            break;
+
+        case BFX_FS_FAT:
+            /* A FAT session: no inode to read.  FatFs's item for the path   */
+            /* fills the facts (the root described without it), and its      */
+            /* result is errno-style, as the lwext4 read below gives --      */
+            /* ENOENT for a path that does not exist.                        */
+            return(BFT_StatEntry(pszImagePath, pEntry));
+
+        case BFX_FS_SQFS:
+            /* A squashfs session: squashfuse reads the inode, which keeps   */
+            /* Unix facts as ext2/3/4's does (BFQ_StatEntry), its result     */
+            /* errno-style as the lwext4 read below gives.                   */
+            return(BFQ_StatEntry(pszImagePath, pEntry));
+
+        default:
+            /* A kind with no case here: refused, never read as ext2/3/4. */
+            return(ENOTSUP);
     }
 
     /* Read the raw inode: lwext4 resolves the path and copies the inode   */
@@ -956,7 +1085,8 @@ void BFX_FreeNames(char **ppszNames, int nNames)
 /* the tree removal all see exactly what it returns: every child's name, or   */
 /* none -- a directory that cannot be read through is a failure, never a      */
 /* short list handed back as the whole.  On a FAT session the names come      */
-/* from FatFs instead (BFT_CollectNames, bfe_fat.c), under the same promise.  */
+/* from FatFs instead (BFT_CollectNames, bfe_fat.c), and on a squashfs one    */
+/* from squashfuse (BFQ_CollectNames, bfe_sqfs.c), under the same promise.    */
 /*                                                                            */
 /* Arguments:                                                                 */
 /*     pszImageDir : the directory to read.                                   */
@@ -983,11 +1113,30 @@ int BFX_CollectNames(const char *pszImageDir, char ***pppszNames, int *pnNames)
     *pppszNames = NULL;
     *pnNames    = 0;
 
-    if (BFX_FsKind() == BFX_FS_FAT)
-    {   /* A FAT session: FatFs reads the directory, with the same outputs   */
-        /* and errno-style result (BFT_CollectNames); FatFs leaves out "."   */
-        /* and ".." itself, so no test for them is needed there.             */
-        return(BFT_CollectNames(pszImageDir, pppszNames, pnNames));
+    switch (BFX_FsKind())
+    {   /* Which library reads the directory; every kind other than      */
+        /* ext2/3/4 returns from its case, and ext2/3/4 goes on below.   */
+
+        case BFX_FS_EXT:
+            /* ext2/3/4: lwext4's walk below. */
+            break;
+
+        case BFX_FS_FAT:
+            /* A FAT session: FatFs reads the directory, with the same         */
+            /* outputs and errno-style result (BFT_CollectNames); FatFs        */
+            /* leaves out "." and ".." itself, so no test for them is needed   */
+            /* there.                                                          */
+            return(BFT_CollectNames(pszImageDir, pppszNames, pnNames));
+
+        case BFX_FS_SQFS:
+            /* A squashfs session: squashfuse's directory walk, with the       */
+            /* same outputs, promise and result (BFQ_CollectNames); squashfs   */
+            /* lists no "." or "..".                                           */
+            return(BFQ_CollectNames(pszImageDir, pppszNames, pnNames));
+
+        default:
+            /* A kind with no case here: refused, never walked as ext2/3/4. */
+            return(ENOTSUP);
     }
 
     /* Open the directory for iteration. */
@@ -1320,8 +1469,9 @@ int BFX_NewLinkFinish(const char *pszImageLink, uint32_t uiUid, uint32_t uiGid, 
 /* which the bundled lwext4 can leave stale on a new directory (e2fsck would  */
 /* then report it), and give it the caller's mode, all three times and its    */
 /* parent directory's times, as Linux would.  On a FAT session only the time  */
-/* and the parent apply.  A failure leaves the directory created but only     */
-/* partly finished; the caller reports it.                                    */
+/* and the parent apply; on squashfs it is never reached (EROFS, a guard).    */
+/* A failure leaves the directory created but only partly finished; the       */
+/* caller reports it.                                                         */
 /*                                                                            */
 /* Arguments:                                                                 */
 /*     pszImageDir : the directory just created.                              */
@@ -1329,7 +1479,8 @@ int BFX_NewLinkFinish(const char *pszImageLink, uint32_t uiUid, uint32_t uiGid, 
 /*     uiTime      : its access and modify time, epoch seconds.               */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : 0, or lwext4's result for the first step that failed.            */
+/*     int : 0, or the library's result for the first step that failed        */
+/*           (EROFS on squashfs, ENOTSUP for a kind with no case).            */
 /*----------------------------------------------------------------------------*/
 int BFX_NewDirFinish(const char *pszImageDir, uint32_t uiMode, uint32_t uiTime)
 {
@@ -1337,19 +1488,36 @@ int BFX_NewDirFinish(const char *pszImageDir, uint32_t uiMode, uint32_t uiTime)
     char      *pszProbe;
     int        rc;
 
-    if (BFX_FsKind() == BFX_FS_FAT)
-    {   /* A FAT session: no checksum to settle (that is lwext4's) and no    */
-        /* mode to hold, so only the time is set -- the modify time, FAT's   */
-        /* one -- and the parent touched, as below.                          */
-        rc = BFS_SetMtime(pszImageDir, uiTime);
+    switch (BFX_FsKind())
+    {   /* What finishing a directory means for the session's kind; every   */
+        /* kind other than ext2/3/4 returns from its case.                  */
 
-        if (rc == 0)
-        {   /* The directory it was made in, as Linux updates it. */
-            rc = BFX_TouchParent(pszImageDir);
-        }
+        case BFX_FS_EXT:
+            /* ext2/3/4: the checksum, the mode and the times, below. */
+            break;
 
-        /* 0, or the first failure. */
-        return(rc);
+        case BFX_FS_FAT:
+            /* A FAT session: no checksum to settle (that is lwext4's) and    */
+            /* no mode to hold, so only the time is set -- the modify time,   */
+            /* FAT's one -- and then, when that went in, the parent touched   */
+            /* as Linux updates it.  0, or the first failure.                 */
+            rc = BFS_SetMtime(pszImageDir, uiTime);
+
+            if (rc == 0)
+            {   /* The directory it was made in. */
+                rc = BFX_TouchParent(pszImageDir);
+            }
+
+            return(rc);
+
+        case BFX_FS_SQFS:
+            /* squashfs: no directory is ever made on it (the gate refuses    */
+            /* every change), so this is a guard -- a read-only filesystem.   */
+            return(EROFS);
+
+        default:
+            /* A kind with no case here: refused, never finished as ext2/3/4. */
+            return(ENOTSUP);
     }
 
     /* STEP 1: add and remove one entry, so the directory block is rewritten.   */
@@ -1429,12 +1597,13 @@ int BFX_NewDirFinish(const char *pszImageDir, uint32_t uiMode, uint32_t uiTime)
 /*----------------------------------------------------------------------------*/
 /* BFX_Finish:                                                                */
 /*                                                                            */
-/* The common tail of the simple edit functions: turn one lwext4 result into  */
-/* the status to return, recording a detail line on failure, and release the  */
+/* The common tail of the simple edit and read functions: turn one            */
+/* errno-style result (lwext4's form, whichever library gave it) into the     */
+/* status to return, recording a detail line on failure, and release the      */
 /* busy flag either way.                                                      */
 /*                                                                            */
 /* Arguments:                                                                 */
-/*     rc       : the lwext4 call's result.                                   */
+/*     rc       : the call's result, errno-style.                             */
 /*     pszVerb  : what was being done, for the detail line ("remove").        */
 /*     pszPath  : the image path it was being done to.                        */
 /*                                                                            */
@@ -1445,12 +1614,12 @@ static int BFX_Finish(int rc, const char *pszVerb, const char *pszPath)
 {
     int iStatus;
 
-    /* Success unless lwext4 said otherwise. */
+    /* Success unless the library said otherwise. */
     iStatus = BFE_OK;
 
     /* A failure is recorded before the release below (BFX_Fail's rule). */
     if (rc != 0)
-    {   /* lwext4 refused: keep its reason next to the path. */
+    {   /* The library refused: keep its reason next to the path. */
         iStatus = BFX_Fail(BFX_MapErrno(rc), "cannot %s %s: %s", pszVerb, pszPath, strerror(rc));
     }
 
@@ -1518,8 +1687,9 @@ BFE_API int BFE_ApiVersion(void)
 /* Open an image file or a device and mount the filesystem in it, read-only    */
 /* or for writing with the journal running.  A device opened for writing is    */
 /* refused when it is the system disk, and otherwise has its disk's volumes    */
-/* locked for the session.  A range lwext4 will not mount is tried as FAT or   */
-/* exFAT (bfe_fat.c), opened read-only or writable as asked.                   */
+/* locked for the session.  A range lwext4 will not mount is tried as          */
+/* squashfs (bfe_sqfs.c), which opens read-only only, then as FAT or exFAT     */
+/* (bfe_fat.c), opened read-only or writable as asked.                         */
 /*                                                                             */
 /* Arguments:                                                                  */
 /*     pwszImage : the image file's or device's host path, UTF-16.             */
@@ -1534,9 +1704,10 @@ BFE_API int BFE_ApiVersion(void)
 /*           or locked: BFE_ERR_ALREADY_OPEN, BFE_ERR_ARG, BFE_ERR_IMAGE_OPEN, */
 /*           BFE_ERR_SYSTEM_DISK, BFE_ERR_VOLUME_LOCK, BFE_ERR_NO_MEMORY,      */
 /*           BFE_ERR_MOUNT, BFE_ERR_JOURNAL, BFE_ERR_IO_IMAGE (the FAT try's   */
-/*           read of the range failed -- BFT_Mount), or -- a read-write open   */
-/*           of an image whose features the engine can only read --            */
-/*           BFE_ERR_READ_ONLY.                                                */
+/*           read of the range failed -- BFT_Mount), BFE_ERR_UNSUPPORTED (a    */
+/*           squashfs version or compression this build does not read), or     */
+/*           -- a read-write open of an image whose features the engine can    */
+/*           only read, or of squashfs -- BFE_ERR_READ_ONLY.                   */
 /*-----------------------------------------------------------------------------*/
 BFE_API int BFE_Open(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t ullLength, int bReadOnly)
 {
@@ -1545,11 +1716,12 @@ BFE_API int BFE_Open(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t ullL
     int        iAccess;
     int        iStatus;
     int        iError;
+    bool       bSquashfs;
     int        rc;
 
     /* The gate: the flag only.  "No image open" is tested just below with   */
     /* its own message, so the gate is not asked to demand one either way.   */
-    iStatus = BFX_Enter(FALSE, FALSE);
+    iStatus = BFX_Enter(false, false);
 
     if (iStatus != BFE_OK)
     {   /* Another call is running. */
@@ -1722,12 +1894,48 @@ BFE_API int BFE_Open(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t ullL
 
     if (rc != 0)
     {   /* Not an ext2/3/4 filesystem at that offset, or a damaged superblock:   */
-        /* tried as FAT or exFAT.  lwext4 has left nothing mounted -- it         */
-        /* closes the device it opened, and BifrostFM patch 4 (ext4.c) frees     */
-        /* the mount point -- so FatFs finds the block device configured and     */
-        /* its target closed, and opens it for itself.  FatFs counts in the      */
-        /* device's own sector size (a file's is 512), which the probe of        */
-        /* STEP 1 learned.                                                       */
+        /* tried as squashfs, then as FAT or exFAT.  lwext4 has left nothing     */
+        /* mounted -- it closes the device it opened, and BifrostFM patch 4      */
+        /* (ext4.c) frees the mount point -- so each library finds the block     */
+        /* device configured and its target closed, and opens it for itself.     */
+        /* squashfs goes first because its magic decides at once: a range        */
+        /* without it is left unopened for FAT, and one with it is squashfs      */
+        /* whatever else is wrong with it, reported as such.                     */
+        iStatus = BFQ_Mount(bReadOnly, &bSquashfs);
+
+        if (bSquashfs)
+        {   /* The range holds squashfs: mounted, or refused for a reason   */
+            /* BFQ_Mount has recorded (a writable open among them).         */
+            if (iStatus != BFE_OK)
+            {   /* It does not mount: nothing is left open.  A writable       */
+                /* device's volumes were locked in STEP 1a; they go back to   */
+                /* Windows.                                                   */
+                BFV_UnlockDisk(&BFX_locks);
+                BFX_Leave();
+                return(iStatus);
+            }
+
+            /* A squashfs session, read-only by what it is: no journal,        */
+            /* nothing barred, no ext4 superblock, and no volume locks --      */
+            /* only a read-only open gets here, and STEP 1a locks for a        */
+            /* writable one alone.  Marked open only now, as the other kinds   */
+            /* are.                                                            */
+            BFX_iFsKind        = BFX_FS_SQFS;
+            BFX_bReadOnly      = true;
+            BFX_bJournalOn     = false;
+            BFX_bChangesBarred = false;
+            BFX_pSuperblock    = NULL;
+            BFX_bOpen          = true;
+
+            /* The open is over; free the engine for the session's calls. */
+            BFX_Leave();
+
+            /* The squashfs filesystem is open and mounted. */
+            return(BFE_OK);
+        }
+
+        /* Not squashfs: FAT or exFAT.  FatFs counts in the device's own       */
+        /* sector size (a file's is 512), which the probe of STEP 1 learned.   */
         iStatus = BFT_Mount(probe.uiSector, strerror(rc));
 
         if (iStatus != BFE_OK)
@@ -1747,10 +1955,10 @@ BFE_API int BFE_Open(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t ullL
         /* ext4 path below is.                                              */
         BFX_iFsKind        = BFX_FS_FAT;
         BFX_bReadOnly      = (bReadOnly != 0);
-        BFX_bJournalOn     = FALSE;
-        BFX_bChangesBarred = FALSE;
+        BFX_bJournalOn     = false;
+        BFX_bChangesBarred = false;
         BFX_pSuperblock    = NULL;
-        BFX_bOpen          = TRUE;
+        BFX_bOpen          = true;
 
         /* The open is over; free the engine for the session's calls. */
         BFX_Leave();
@@ -1944,28 +2152,28 @@ BFE_API int BFE_Open(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t ullL
         return(iStatus);
     }
 
-    /* The session's mode, for BFX_Enter's write check on every later call,   */
-    /* and its journal state: a writable session's journal was started in     */
-    /* STEP 4 (on a filesystem with none, the start did nothing and the       */
-    /* stop will do nothing), and no change is barred yet.                    */
-    BFX_bChangesBarred = FALSE;
+    /* The session's mode, for the gate's write check on every later call,   */
+    /* and its journal state: a writable session's journal was started in    */
+    /* STEP 4 (on a filesystem with none, the start did nothing and the      */
+    /* stop will do nothing), and no change is barred yet.                   */
+    BFX_bChangesBarred = false;
 
     if (bReadOnly)
-    {   /* Remember the mode for BFX_Enter's write check; no journal runs. */
-        BFX_bReadOnly  = TRUE;
-        BFX_bJournalOn = FALSE;
+    {   /* Remember the mode for the gate's write check; no journal runs. */
+        BFX_bReadOnly  = true;
+        BFX_bJournalOn = false;
     }
     else
     {   /* A writable session, its journal running. */
-        BFX_bReadOnly  = FALSE;
-        BFX_bJournalOn = TRUE;
+        BFX_bReadOnly  = false;
+        BFX_bJournalOn = true;
     }
 
     /* Only now, with everything in place, is the session marked open --    */
-    /* every failure above leaves BFX_bOpen FALSE and nothing held -- and   */
+    /* every failure above leaves BFX_bOpen false and nothing held -- and   */
     /* as lwext4's.                                                         */
     BFX_iFsKind = BFX_FS_EXT;
-    BFX_bOpen   = TRUE;
+    BFX_bOpen   = true;
 
     /* The open is over; free the engine for the session's calls. */
     BFX_Leave();
@@ -1977,7 +2185,7 @@ BFE_API int BFE_Open(const wchar_t *pwszImage, uint64_t ullOffset, uint64_t ullL
 /*----------------------------------------------------------------------------*/
 /* BFE_Close:                                                                 */
 /*                                                                            */
-/* Flush and close the open image, of either kind, leaving the image file     */
+/* Flush and close the open image, of any kind, leaving the image file        */
 /* consistent and closed, and give a device's volumes back to Windows.        */
 /*                                                                            */
 /* Arguments:                                                                 */
@@ -1999,33 +2207,58 @@ BFE_API int BFE_Close(void)
     int rcJournal;
     int rcUmount;
 
-    /* The gate: the busy flag, and an image must be open -- of either kind. */
-    iStatus = BFX_EnterAnyFs(TRUE, FALSE);
+    /* The gate: the busy flag, and an image must be open -- of a kind this   */
+    /* function lets go of.                                                   */
+    iStatus = BFX_EnterKinds(false, BFX_FSMASK_EXT | BFX_FSMASK_FAT | BFX_FSMASK_SQFS);
 
     if (iStatus != BFE_OK)
     {   /* Busy, or nothing open. */
         return(iStatus);
     }
 
-    if (BFX_iFsKind == BFX_FS_FAT)
-    {   /* A FAT session: nothing to drain -- FatFs wrote and synced a      */
-        /* writable session's every change as it was made, so a write the   */
-        /* device dropped failed that change's own call, not this one --    */
-        /* and no journal.  FatFs lets go of the volume and the target is   */
-        /* closed                                                           */
-        /* (its close flushes it); a failure is recorded by BFT_Unmount.    */
-        /* The volume locks of a writable device session go after it, as    */
-        /* below; a read-only session took none.                            */
-        iStatus = BFT_Unmount();
-        BFV_UnlockDisk(&BFX_locks);
-        BFX_bOpen   = FALSE;
-        BFX_iFsKind = BFX_FS_EXT;
+    switch (BFX_FsKind())
+    {   /* Which library lets the session go; every kind other than      */
+        /* ext2/3/4 returns from its case, and ext2/3/4 goes on below.   */
 
-        /* Free the engine; the session is over either way. */
-        BFX_Leave();
+        case BFX_FS_EXT:
+            /* ext2/3/4: the drain, the journal and the unmount below. */
+            break;
 
-        /* BFE_OK, or the unmount's failure. */
-        return(iStatus);
+        case BFX_FS_FAT:
+            /* A FAT session: nothing to drain -- FatFs wrote and synced a    */
+            /* writable session's every change as it was made, so a write     */
+            /* the device dropped failed that change's own call, not this     */
+            /* one -- and no journal.  FatFs lets go of the volume and the    */
+            /* target is closed (its close flushes it); a failure is          */
+            /* recorded by BFT_Unmount.  The volume locks of a writable       */
+            /* device session go after it, as below; a read-only session      */
+            /* took none.  Then the engine is freed and the session is over   */
+            /* either way: BFE_OK, or the unmount's failure.                  */
+            iStatus = BFT_Unmount();
+            BFV_UnlockDisk(&BFX_locks);
+            BFX_bOpen   = false;
+            BFX_iFsKind = BFX_FS_EXT;
+            BFX_Leave();
+            return(iStatus);
+
+        case BFX_FS_SQFS:
+            /* A squashfs session: nothing was ever written, so nothing to   */
+            /* drain and no journal; squashfuse lets go of the filesystem    */
+            /* and the target is closed, which cannot fail.  A squashfs      */
+            /* session is always read-only, so it holds no volume locks.     */
+            /* Then the engine is freed and the session is over.             */
+            BFQ_Unmount();
+            BFX_bOpen   = false;
+            BFX_iFsKind = BFX_FS_EXT;
+            BFX_Leave();
+            return(BFE_OK);
+
+        default:
+            /* A kind with no case here: the gate's kinds above refuse it,   */
+            /* so this is a guard -- refused, never unmounted as ext2/3/4.   */
+            iStatus = BFX_Fail(BFE_ERR_UNSUPPORTED, "the open filesystem cannot be closed by this build");
+            BFX_Leave();
+            return(iStatus);
     }
 
     /* A read-only session has no cache to drain and no journal running, so   */
@@ -2050,7 +2283,7 @@ BFE_API int BFE_Close(void)
     }
 
     /* No journal runs past this point, whatever the stop returned. */
-    BFX_bJournalOn = FALSE;
+    BFX_bJournalOn = false;
 
     /* Unmount, which also closes the block device beneath. */
     rcUmount = ext4_umount(BFX_MOUNT_POINT);
@@ -2064,7 +2297,7 @@ BFE_API int BFE_Close(void)
     /* BFE_Open sets it again.  The superblock pointer is cleared because it   */
     /* pointed into the mount just taken down.                                 */
     BFV_UnlockDisk(&BFX_locks);
-    BFX_bOpen       = FALSE;
+    BFX_bOpen       = false;
     BFX_pSuperblock = NULL;
 
     /* Now the verdict, worst first.  A failed step of the close means the   */
@@ -2090,7 +2323,7 @@ BFE_API int BFE_Close(void)
         iStatus = BFX_Fail(BFE_ERR_JOURNAL, "the session's journal stopped at a flush; run e2fsck on the image before using it");
     }
 
-    /* Free the engine; iStatus is still BFX_Enter's BFE_OK if nothing failed. */
+    /* Free the engine; iStatus is still the gate's BFE_OK if nothing failed. */
     BFX_Leave();
 
     /* BFE_OK, or the failure recorded above. */
@@ -2107,16 +2340,17 @@ BFE_API int BFE_Close(void)
 /*                                                                            */
 /* A journal that cannot be checkpointed or restarted here is GONE, and the   */
 /* session then takes no more changes: they would be written unjournaled.     */
-/* It stays open for reading                                                  */
-/* and copying out, every modifying call is refused with BFE_ERR_JOURNAL      */
-/* (BFX_Enter), and BFE_Close says once more that the image wants a check.    */
+/* It stays open for reading and copying out, every modifying call is         */
+/* refused with BFE_ERR_JOURNAL (the gate), and BFE_Close says once more      */
+/* that the image wants a check.                                              */
 /*                                                                            */
 /* Arguments:                                                                 */
 /*     None.                                                                  */
 /*                                                                            */
 /* Returns:                                                                   */
-/*     int : BFE_OK (also on a read-only session, or one whose journal an     */
-/*           earlier flush lost -- neither has anything to commit);           */
+/*     int : BFE_OK (also on a read-only session, a FAT or squashfs one, or   */
+/*           one whose journal an earlier flush lost -- none has anything to  */
+/*           commit);                                                         */
 /*           BFE_ERR_NOT_OPEN; BFE_ERR_IO_IMAGE when the cache could not be   */
 /*           written; BFE_ERR_JOURNAL when the journal could not be           */
 /*           checkpointed or restarted (changes barred from then on);         */
@@ -2128,21 +2362,49 @@ BFE_API int BFE_Flush(void)
     int iStatus;
     int rc;
 
-    /* The gate: the busy flag, and an image must be open -- of either kind,   */
-    /* since a FAT session has nothing to commit and is answered just below.   */
-    iStatus = BFX_EnterAnyFs(TRUE, FALSE);
+    /* The gate: the busy flag, and an image must be open -- of a kind this     */
+    /* function knows how to commit; a FAT or squashfs session has nothing to   */
+    /* commit and is answered just below.                                       */
+    iStatus = BFX_EnterKinds(false, BFX_FSMASK_EXT | BFX_FSMASK_FAT | BFX_FSMASK_SQFS);
 
     if (iStatus != BFE_OK)
     {   /* Busy, or nothing open. */
         return(iStatus);
     }
 
-    if (BFX_bReadOnly || BFX_bChangesBarred || BFX_iFsKind == BFX_FS_FAT)
-    {   /* Nothing to commit -- a read-only session; one whose journal an      */
+    switch (BFX_FsKind())
+    {   /* What a commit means for the session's kind; every kind other       */
+        /* than ext2/3/4 returns from its case, and ext2/3/4 goes on below.   */
+
+        case BFX_FS_EXT:
+            /* ext2/3/4: the cache and the journal, below. */
+            break;
+
+        case BFX_FS_FAT:
+            /* A FAT session: nothing to commit -- FatFs has already written   */
+            /* every change through (each file close, mkdir, unlink and        */
+            /* rename syncs the volume).  The engine is freed; success.        */
+            BFX_Leave();
+            return(BFE_OK);
+
+        case BFX_FS_SQFS:
+            /* A squashfs session: nothing to commit -- nothing is ever   */
+            /* written to it.  The engine is freed; success.              */
+            BFX_Leave();
+            return(BFE_OK);
+
+        default:
+            /* A kind with no case here: the gate's kinds above refuse it,   */
+            /* so this is a guard -- refused, never flushed as ext2/3/4.     */
+            iStatus = BFX_Fail(BFE_ERR_UNSUPPORTED, "the open filesystem cannot be flushed by this build");
+            BFX_Leave();
+            return(iStatus);
+    }
+
+    if (BFX_bReadOnly || BFX_bChangesBarred)
+    {   /* Nothing to commit -- a read-only session; or one whose journal an   */
         /* earlier flush lost, which has drained its cache and refused every   */
-        /* change since; or a FAT session, whose every change FatFs has        */
-        /* already written through (each file close, mkdir, unlink and         */
-        /* rename syncs the volume).                                           */
+        /* change since.                                                       */
 
         /* Free the engine and report success. */
         BFX_Leave();
@@ -2183,7 +2445,7 @@ BFE_API int BFE_Flush(void)
         /* way lwext4 has let it go (a failed stop and a failed start both     */
         /* release it), so NO journal runs now.  The session is not left       */
         /* writable on those terms: every further change is refused            */
-        /* (BFX_bChangesBarred, tested by BFX_Enter), since it would go        */
+        /* (BFX_bChangesBarred, tested by the gate), since it would go         */
         /* unjournaled -- and over a journal that may still hold               */
         /* transactions a later replay would lay over it.  It stays open, so   */
         /* the caller can read and copy out, and BFE_Close knows not to stop   */
@@ -2192,8 +2454,8 @@ BFE_API int BFE_Flush(void)
         /* empty cache.  No retry: a journal block that would not write a      */
         /* moment ago is not expected to now, and the image needs a check      */
         /* either way.                                                         */
-        BFX_bJournalOn     = FALSE;
-        BFX_bChangesBarred = TRUE;
+        BFX_bJournalOn     = false;
+        BFX_bChangesBarred = true;
         iStatus = BFX_Fail(BFE_ERR_JOURNAL, "cannot checkpoint or restart the journal: %s; this session takes no more changes "
                                             "-- close the image and check it before writing to it again", strerror(rc));
     }
@@ -2240,7 +2502,7 @@ BFE_API int BFE_SetWriteVerify(uint32_t bOn)
 
     /* The gate: the busy flag only -- the setting may be made with or   */
     /* without an image open.                                            */
-    iStatus = BFX_Enter(FALSE, FALSE);
+    iStatus = BFX_Enter(false, false);
 
     if (iStatus != BFE_OK)
     {   /* Another call is running. */
@@ -2270,7 +2532,8 @@ BFE_API int BFE_SetWriteVerify(uint32_t bOn)
 /* The facts a caller most often wants -- metadata_csum, dir_index, the       */
 /* session's mode, an external journal -- are picked out as flags so it need  */
 /* not decode the raw feature words, which are reported as well.  On a FAT    */
-/* session the facts come from FatFs.                                         */
+/* session the facts come from FatFs, and on a squashfs one from its          */
+/* superblock (BFQ_VolumeInfo).                                               */
 /*                                                                            */
 /* Arguments:                                                                 */
 /*     pInfo : receives the facts.                                            */
@@ -2279,7 +2542,8 @@ BFE_API int BFE_SetWriteVerify(uint32_t bOn)
 /*     int : BFE_OK; BFE_ERR_ARG for a NULL pointer; BFE_ERR_NOT_OPEN;        */
 /*           BFE_ERR_IO_IMAGE when lwext4 cannot supply the statistics, or    */
 /*           FatFs the free count or the label (BFT_VolumeInfo's mapped       */
-/*           code).                                                           */
+/*           code); on squashfs always BFE_OK (BFQ_VolumeInfo reads only the  */
+/*           superblock already read).                                        */
 /*----------------------------------------------------------------------------*/
 BFE_API int BFE_VolumeInfoGet(BFE_VolumeInfo *pInfo)
 {
@@ -2293,29 +2557,56 @@ BFE_API int BFE_VolumeInfoGet(BFE_VolumeInfo *pInfo)
         return(BFE_ERR_ARG);
     }
 
-    /* The gate: the busy flag, and an image must be open -- of either kind. */
-    iStatus = BFX_EnterAnyFs(TRUE, FALSE);
+    /* The gate: the busy flag, and an image must be open -- of a kind this   */
+    /* function can describe.                                                 */
+    iStatus = BFX_EnterKinds(false, BFX_FSMASK_EXT | BFX_FSMASK_FAT | BFX_FSMASK_SQFS);
 
     if (iStatus != BFE_OK)
     {   /* Busy, or nothing open. */
         return(iStatus);
     }
 
-    if (BFX_iFsKind == BFX_FS_FAT)
-    {   /* A FAT session: its clusters as blocks, no inodes and no ext4   */
-        /* feature words (BFT_VolumeInfo fills it, recording any          */
-        /* failure); the session's mode is set here.                      */
-        iStatus = BFT_VolumeInfo(pInfo);
+    switch (BFX_FsKind())
+    {   /* Which library supplies the facts; every kind other than            */
+        /* ext2/3/4 has them filled by its own library and goes on to the     */
+        /* session's mode after this switch; ext2/3/4 goes to lwext4 below.   */
 
+        case BFX_FS_EXT:
+            /* ext2/3/4: lwext4's statistics, below. */
+            break;
+
+        case BFX_FS_FAT:
+            /* A FAT session: its clusters as blocks, no inodes and no ext4   */
+            /* feature words (BFT_VolumeInfo fills it, recording any          */
+            /* failure).                                                      */
+            iStatus = BFT_VolumeInfo(pInfo);
+            break;
+
+        case BFX_FS_SQFS:
+            /* A squashfs session: its superblock's size and counts, nothing   */
+            /* free, no label, read-only (BFQ_VolumeInfo).                     */
+            iStatus = BFQ_VolumeInfo(pInfo);
+            break;
+
+        default:
+            /* A kind with no case here: the gate's kinds above refuse it,   */
+            /* so this is a guard -- refused, never described as ext2/3/4.   */
+            iStatus = BFX_Fail(BFE_ERR_UNSUPPORTED, "the open filesystem cannot be described by this build");
+            break;
+    }
+
+    if (BFX_FsKind() != BFX_FS_EXT)
+    {   /* Any kind but ext2/3/4 was answered by its case above. */
         if (iStatus == BFE_OK && BFX_bReadOnly)
-        {   /* The session's own mode, which bfe_fat.c does not hold. */
+        {   /* The session's own mode, which the session holds (BFQ_VolumeInfo   */
+            /* sets it too, squashfs being read-only always; BFT_VolumeInfo      */
+            /* does not).                                                        */
             pInfo->bReadOnly = 1;
         }
 
-        /* Free the engine, the facts filled or the failure recorded. */
+        /* Free the engine, the facts filled or the failure recorded:   */
+        /* BFE_OK, or that failure.                                     */
         BFX_Leave();
-
-        /* BFE_OK, or the failure recorded. */
         return(iStatus);
     }
 
@@ -2392,7 +2683,7 @@ BFE_API int BFE_VolumeInfoGet(BFE_VolumeInfo *pInfo)
 /* It does not pass the gate, deliberately: the GUI asks for the text right   */
 /* after a failed call, and the text is only ever written by a call that      */
 /* holds the busy flag -- so, called from the one worker thread as the        */
-/* contract requires, it cannot be read half-written.  (BFX_Enter's refusals  */
+/* contract requires, it cannot be read half-written.  (The gate's refusals   */
 /* are the exception to "holds the flag", and the one-thread contract is what */
 /* makes it harmless: the defect exists and is intentionally deferred.)       */
 /*                                                                            */
@@ -2441,7 +2732,8 @@ BFE_API int BFE_LastErrorText(char *pszBuffer, size_t cbBuffer)
 /*                                                                            */
 /* Hand the caller every entry of a directory, one callback each, with the    */
 /* full inode facts a file-manager row shows.  A FAT session's listing is     */
-/* BFT_ListDir's, under the same every-entry-or-none promise.                 */
+/* BFT_ListDir's, under the same every-entry-or-none promise; a squashfs      */
+/* session's takes the ext2/3/4 steps below, squashfuse answering each.       */
 /*                                                                            */
 /* An entry whose inode cannot be read is STILL reported -- with its name,    */
 /* type BFE_TYPE_UNKNOWN and zeros -- because a damaged entry the user cannot */
@@ -2483,22 +2775,42 @@ BFE_API int BFE_ListDir(const char *pszImageDir, BFE_ListCallback pfnEntry, void
         return(BFE_ERR_ARG);
     }
 
-    /* The gate: the busy flag, and an image must be open -- of either kind. */
-    iStatus = BFX_EnterAnyFs(TRUE, FALSE);
+    /* The gate: the busy flag, and an image must be open -- of a kind this   */
+    /* function can list.                                                     */
+    iStatus = BFX_EnterKinds(false, BFX_FSMASK_EXT | BFX_FSMASK_FAT | BFX_FSMASK_SQFS);
 
     if (iStatus != BFE_OK)
     {   /* Busy, or nothing open. */
         return(iStatus);
     }
 
-    if (BFX_iFsKind == BFX_FS_FAT)
-    {   /* A FAT session: BFT_ListDir keeps the same promise -- every entry,   */
-        /* or none -- and records any failure.                                 */
-        iStatus = BFT_ListDir(pszImageDir, pfnEntry, pvContext);
-        BFX_Leave();
+    switch (BFX_FsKind())
+    {   /* Which library lists the directory; FAT returns from its case, and   */
+        /* ext2/3/4 and squashfs go on below.                                  */
 
-        /* BFE_OK, or the failure recorded. */
-        return(iStatus);
+        case BFX_FS_EXT:
+            /* ext2/3/4: the names, then each entry's inode, below. */
+            break;
+
+        case BFX_FS_SQFS:
+            /* squashfs: the same two steps below, which reach squashfuse   */
+            /* through BFX_CollectNames's and BFX_FillEntry's own cases.    */
+            break;
+
+        case BFX_FS_FAT:
+            /* A FAT session: BFT_ListDir keeps the same promise -- every   */
+            /* entry, or none -- and records any failure.  The engine is    */
+            /* freed: BFE_OK, or the failure recorded.                      */
+            iStatus = BFT_ListDir(pszImageDir, pfnEntry, pvContext);
+            BFX_Leave();
+            return(iStatus);
+
+        default:
+            /* A kind with no case here: the gate's kinds above refuse it,   */
+            /* so this is a guard -- refused, never listed as ext2/3/4.      */
+            iStatus = BFX_Fail(BFE_ERR_UNSUPPORTED, "the open filesystem cannot be listed by this build");
+            BFX_Leave();
+            return(iStatus);
     }
 
     /* Every name first, with the directory closed again (BFX_CollectNames). */
@@ -2550,7 +2862,8 @@ BFE_API int BFE_ListDir(const char *pszImageDir, BFE_ListCallback pfnEntry, void
 /*                                                                            */
 /* Fill a BFE_Entry for one path.  A final symbolic link is described, not    */
 /* followed.  On a FAT session the facts are FatFs's, laid out as a FAT       */
-/* listing shows them (BFX_FillEntry's FAT arm).                              */
+/* listing shows them (BFX_FillEntry's FAT arm); on a squashfs one,           */
+/* squashfuse's (its squashfs arm).                                           */
 /*                                                                            */
 /* Arguments:                                                                 */
 /*     pszImagePath : the path to describe.                                   */
@@ -2572,9 +2885,9 @@ BFE_API int BFE_Stat(const char *pszImagePath, BFE_Entry *pEntry)
         return(BFE_ERR_ARG);
     }
 
-    /* The gate: the busy flag, and an image must be open -- of either kind,   */
-    /* since BFX_FillEntry answers for a FAT session as well.                  */
-    iStatus = BFX_EnterAnyFs(TRUE, FALSE);
+    /* The gate: the busy flag, and an image must be open -- of a kind   */
+    /* BFX_FillEntry answers for.                                        */
+    iStatus = BFX_EnterKinds(false, BFX_FSMASK_EXT | BFX_FSMASK_FAT | BFX_FSMASK_SQFS);
 
     if (iStatus != BFE_OK)
     {   /* Busy, or nothing open. */
@@ -2602,7 +2915,8 @@ BFE_API int BFE_Stat(const char *pszImagePath, BFE_Entry *pEntry)
 /*     int : BFE_OK; BFE_ERR_ARG; BFE_ERR_NOT_OPEN; BFE_ERR_NOT_FOUND;        */
 /*           BFE_ERR_NOT_SYMLINK; BFE_ERR_BUFFER when the target and its NUL  */
 /*           do not fit; BFE_ERR_IO_IMAGE; BFE_ERR_UNSUPPORTED on a FAT       */
-/*           session, which has no links (the gate, BFX_Enter).               */
+/*           session, which has no links (the gate's kinds: ext2/3/4 and      */
+/*           squashfs, which keeps links as ext2/3/4 does).                   */
 /*----------------------------------------------------------------------------*/
 BFE_API int BFE_ReadLink(const char *pszImagePath, char *pszBuffer, size_t cbBuffer)
 {
@@ -2617,11 +2931,12 @@ BFE_API int BFE_ReadLink(const char *pszImagePath, char *pszBuffer, size_t cbBuf
         return(BFE_ERR_ARG);
     }
 
-    /* The gate: the busy flag, and an image must be open. */
-    iStatus = BFX_Enter(TRUE, FALSE);
+    /* The gate: the busy flag, and an image must be open -- of a kind that   */
+    /* has links.                                                             */
+    iStatus = BFX_EnterKinds(false, BFX_FSMASK_EXT | BFX_FSMASK_SQFS);
 
     if (iStatus != BFE_OK)
-    {   /* Busy, or nothing open. */
+    {   /* Busy, nothing open, or a kind with no links. */
         return(iStatus);
     }
 
@@ -2655,8 +2970,9 @@ BFE_API int BFE_ReadLink(const char *pszImagePath, char *pszBuffer, size_t cbBuf
         return(iStatus);
     }
 
-    /* The read (lwext4's, through BFS_ReadLink) copies the target without        */
-    /* terminating it, so the last byte of the buffer is held back for the NUL.   */
+    /* The read (lwext4's or squashfuse's, through BFS_ReadLink) copies the    */
+    /* target without terminating it, so the last byte of the buffer is held   */
+    /* back for the NUL.                                                       */
     cbRead = 0;
     rc     = BFS_ReadLink(pszImagePath, pszBuffer, cbBuffer - 1, &cbRead);
 
@@ -2698,9 +3014,10 @@ BFE_API int BFE_MakeDir(const char *pszImageDir)
         return(BFE_ERR_ARG);
     }
 
-    /* The gate: the busy flag, an open image of either kind (a FAT one   */
-    /* through bfe_fs.c's FAT arms), and a writable session.              */
-    iStatus = BFX_EnterAnyFs(TRUE, TRUE);
+    /* The gate: the busy flag, an open image of a kind this function    */
+    /* handles (a FAT one through bfe_fs.c's FAT arms), and a writable   */
+    /* session.                                                          */
+    iStatus = BFX_EnterKinds(true, BFX_FSMASK_EXT | BFX_FSMASK_FAT);
 
     if (iStatus != BFE_OK)
     {   /* Busy, nothing open, or read-only. */
@@ -2782,9 +3099,9 @@ BFE_API int BFE_Remove(const char *pszImagePath)
         return(BFE_ERR_ARG);
     }
 
-    /* The gate: the busy flag, an open image of either kind, and a   */
-    /* writable session.                                              */
-    iStatus = BFX_EnterAnyFs(TRUE, TRUE);
+    /* The gate: the busy flag, an open image of a kind this function   */
+    /* handles, and a writable session.                                 */
+    iStatus = BFX_EnterKinds(true, BFX_FSMASK_EXT | BFX_FSMASK_FAT);
 
     if (iStatus != BFE_OK)
     {   /* Busy, nothing open, or read-only. */
@@ -2867,9 +3184,10 @@ BFE_API int BFE_RemoveDir(const char *pszImageDir)
         return(BFE_ERR_ARG);
     }
 
-    /* The gate: the busy flag, an open image of either kind (a FAT one   */
-    /* through bfe_fs.c's FAT arms), and a writable session.              */
-    iStatus = BFX_EnterAnyFs(TRUE, TRUE);
+    /* The gate: the busy flag, an open image of a kind this function    */
+    /* handles (a FAT one through bfe_fs.c's FAT arms), and a writable   */
+    /* session.                                                          */
+    iStatus = BFX_EnterKinds(true, BFX_FSMASK_EXT | BFX_FSMASK_FAT);
 
     if (iStatus != BFE_OK)
     {   /* Busy, nothing open, or read-only. */
@@ -2925,7 +3243,7 @@ BFE_API int BFE_RemoveDir(const char *pszImageDir)
 /* the caller of each entry removed and stopping between entries when the     */
 /* caller asks -- which lwext4's own recursive remove (ext4_dir_rm), doing    */
 /* the whole tree inside one call, has no place for, so the engine walks the  */
-/* tree itself on both kinds of filesystem.  The first failure stops the      */
+/* tree itself, on ext2/3/4 and FAT alike.  The first failure stops the       */
 /* walk, leaving what was not yet reached; what was removed stays removed.    */
 /*                                                                            */
 /* Arguments:                                                                 */
@@ -2936,8 +3254,8 @@ BFE_API int BFE_RemoveDir(const char *pszImageDir)
 /*     pvContext   : handed to pfnEvent unchanged.                            */
 /*     pnRemoved   : the running count of entries removed, kept across the    */
 /*                   recursion; the caller sets it to 0 first.                */
-/*     pbCancelled : set to 1 when the callback answered BFE_REPLY_CANCEL;    */
-/*                   the caller sets it to 0 first.                           */
+/*     pbCancelled : set true when the callback answered BFE_REPLY_CANCEL;    */
+/*                   the caller sets it false first.                          */
 /*                                                                            */
 /* Returns:                                                                   */
 /*     int : 0 when the walk ended without a failure (a cancel included --    */
@@ -2945,7 +3263,7 @@ BFE_API int BFE_RemoveDir(const char *pszImageDir)
 /*           the first read or removal that failed.                           */
 /*----------------------------------------------------------------------------*/
 static int Bfx_RemoveTreeWalk(const char *pszImageDir, BFE_CopyCallback pfnEvent, void *pvContext,
-                              uint64_t *pnRemoved, int *pbCancelled)
+                              uint64_t *pnRemoved, bool *pbCancelled)
 {
     BFE_CopyEvent event;
     BFE_Entry     entry;
@@ -2964,7 +3282,7 @@ static int Bfx_RemoveTreeWalk(const char *pszImageDir, BFE_CopyCallback pfnEvent
         return(rc);
     }
 
-    for (i = 0; i < nNames && rc == 0 && *pbCancelled == 0; i++)
+    for (i = 0; i < nNames && rc == 0 && !*pbCancelled; i++)
     {   /* One child per iteration, until one fails or the caller stops. */
         pszChild = BFU_JoinImage(pszImageDir, ppszNames[i]);
 
@@ -3004,7 +3322,7 @@ static int Bfx_RemoveTreeWalk(const char *pszImageDir, BFE_CopyCallback pfnEvent
                     event.ullBytesDone = *pnRemoved;
                     if (pfnEvent(&event, pvContext) == BFE_REPLY_CANCEL)
                     {   /* Asked to stop: nothing more is removed. */
-                        *pbCancelled = 1;
+                        *pbCancelled = true;
                     }
                 }
             }
@@ -3017,7 +3335,7 @@ static int Bfx_RemoveTreeWalk(const char *pszImageDir, BFE_CopyCallback pfnEvent
     /* The names are done with, however the walk ended. */
     BFX_FreeNames(ppszNames, nNames);
 
-    if (rc != 0 || *pbCancelled != 0)
+    if (rc != 0 || *pbCancelled)
     {   /* A failure or a stop: the directory stays, with what was not   */
         /* reached.                                                      */
         return(rc);
@@ -3041,7 +3359,7 @@ static int Bfx_RemoveTreeWalk(const char *pszImageDir, BFE_CopyCallback pfnEvent
             event.ullBytesDone = *pnRemoved;
             if (pfnEvent(&event, pvContext) == BFE_REPLY_CANCEL)
             {   /* Asked to stop: the directories above stay. */
-                *pbCancelled = 1;
+                *pbCancelled = true;
             }
         }
     }
@@ -3079,7 +3397,7 @@ BFE_API int BFE_RemoveTree(const char *pszImageDir, BFE_CopyCallback pfnEvent, v
 {
     BFE_Entry entry;
     uint64_t  nRemoved;
-    int       bCancelled;
+    bool      bCancelled;
     int       iStatus;
     int       rc;
 
@@ -3089,9 +3407,9 @@ BFE_API int BFE_RemoveTree(const char *pszImageDir, BFE_CopyCallback pfnEvent, v
         return(BFE_ERR_ARG);
     }
 
-    /* The gate: the busy flag, an open image of either kind, and a   */
-    /* writable session.                                              */
-    iStatus = BFX_EnterAnyFs(TRUE, TRUE);
+    /* The gate: the busy flag, an open image of a kind this function   */
+    /* handles, and a writable session.                                 */
+    iStatus = BFX_EnterKinds(true, BFX_FSMASK_EXT | BFX_FSMASK_FAT);
 
     if (iStatus != BFE_OK)
     {   /* Busy, nothing open, or read-only. */
@@ -3119,10 +3437,10 @@ BFE_API int BFE_RemoveTree(const char *pszImageDir, BFE_CopyCallback pfnEvent, v
     /* The engine's own walk, entry by entry: the count and the stop flag   */
     /* start clear.  A failure part-way leaves what it had not reached.     */
     nRemoved = 0;
-    bCancelled = 0;
+    bCancelled = false;
     rc = Bfx_RemoveTreeWalk(pszImageDir, pfnEvent, pvContext, &nRemoved, &bCancelled);
 
-    if (rc == 0 && bCancelled != 0)
+    if (rc == 0 && bCancelled)
     {   /* Stopped by the caller between entries: what was removed stays   */
         /* removed, the rest stays, and the directory with it.             */
         iStatus = BFX_Fail(BFE_ERR_CANCELLED, "removing %s stopped after %llu entries",
@@ -3167,8 +3485,8 @@ BFE_API int BFE_Rename(const char *pszImageFrom, const char *pszImageTo)
     char      *pszToCanon;       // the destination likewise
     size_t     cbFromCanon;
     size_t     cbMatched;
-    int        bSameEntry;
-    int        bInside;
+    bool       bSameEntry;
+    bool       bInside;
     int        iStatus;
     int        rc;
 
@@ -3177,9 +3495,9 @@ BFE_API int BFE_Rename(const char *pszImageFrom, const char *pszImageTo)
         return(BFE_ERR_ARG);
     }
 
-    /* The gate: the busy flag, an open image of either kind, and a   */
-    /* writable session.                                              */
-    iStatus = BFX_EnterAnyFs(TRUE, TRUE);
+    /* The gate: the busy flag, an open image of a kind this function   */
+    /* handles, and a writable session.                                 */
+    iStatus = BFX_EnterKinds(true, BFX_FSMASK_EXT | BFX_FSMASK_FAT);
 
     if (iStatus != BFE_OK)
     {   /* Busy, nothing open, or read-only. */
@@ -3220,12 +3538,12 @@ BFE_API int BFE_Rename(const char *pszImageFrom, const char *pszImageTo)
     /* see as another entry is.  Matched to the destination's end: the same    */
     /* path.  On ext2/3/4, where names are bytes, no two different             */
     /* spellings are one entry.                                                */
-    bSameEntry = FALSE;
+    bSameEntry = false;
 
-    if (BFX_iFsKind == BFX_FS_FAT && strcmp(pszImageFrom, pszImageTo) != 0 &&
+    if (BFX_FsTraits()->bFatNames && strcmp(pszImageFrom, pszImageTo) != 0 &&
         BFT_PathFoldPrefix(pszToCanon, pszFromCanon, &cbMatched) && pszToCanon[cbMatched] == '\0')
     {   /* The source itself, spelt another way. */
-        bSameEntry = TRUE;
+        bSameEntry = true;
     }
 
     /* The destination must not exist; the test and the rename both run   */
@@ -3258,14 +3576,14 @@ BFE_API int BFE_Rename(const char *pszImageFrom, const char *pszImageTo)
     /* caught there as well -- and since a letter and its capital may differ   */
     /* in UTF-8 length, the '/' is looked for where the fold's match ended,    */
     /* not at the source's own length.                                         */
-    bInside = FALSE;
+    bInside = false;
 
-    if (BFX_iFsKind == BFX_FS_FAT)
-    {   /* FAT: the destination begins with the source, letter case aside,   */
-        /* and a '/' follows.                                                */
+    if (BFX_FsTraits()->bFatNames)
+    {   /* FAT's names: the destination begins with the source, letter case   */
+        /* aside, and a '/' follows.                                          */
         if (BFT_PathFoldPrefix(pszToCanon, pszFromCanon, &cbMatched) && pszToCanon[cbMatched] == '/')
         {   /* Under it. */
-            bInside = TRUE;
+            bInside = true;
         }
     }
     else
@@ -3274,7 +3592,7 @@ BFE_API int BFE_Rename(const char *pszImageFrom, const char *pszImageTo)
 
         if (strncmp(pszToCanon, pszFromCanon, cbFromCanon) == 0 && pszToCanon[cbFromCanon] == '/')
         {   /* Under it. */
-            bInside = TRUE;
+            bInside = true;
         }
     }
 
@@ -3346,7 +3664,7 @@ BFE_API int BFE_SetMode(const char *pszImagePath, uint32_t uiMode)
     }
 
     /* The gate: the busy flag, an open image, and a writable session. */
-    iStatus = BFX_Enter(TRUE, TRUE);
+    iStatus = BFX_Enter(true, true);
 
     if (iStatus != BFE_OK)
     {   /* Busy, nothing open, or read-only. */
@@ -3395,7 +3713,7 @@ BFE_API int BFE_SetOwner(const char *pszImagePath, uint32_t uiUid, uint32_t uiGi
     }
 
     /* The gate: the busy flag, an open image, and a writable session. */
-    iStatus = BFX_Enter(TRUE, TRUE);
+    iStatus = BFX_Enter(true, true);
 
     if (iStatus != BFE_OK)
     {   /* Busy, nothing open, or read-only. */
@@ -3444,9 +3762,10 @@ BFE_API int BFE_SetTimes(const char *pszImagePath, uint32_t uiAtime, uint32_t ui
         return(BFE_ERR_ARG);
     }
 
-    /* The gate: the busy flag, an open image of either kind (on FAT only   */
-    /* the modify time is kept), and a writable session.                    */
-    iStatus = BFX_EnterAnyFs(TRUE, TRUE);
+    /* The gate: the busy flag, an open image of a kind this function   */
+    /* handles (on FAT only the modify time is kept), and a writable    */
+    /* session.                                                         */
+    iStatus = BFX_EnterKinds(true, BFX_FSMASK_EXT | BFX_FSMASK_FAT);
 
     if (iStatus != BFE_OK)
     {   /* Busy, nothing open, or read-only. */
@@ -3507,7 +3826,7 @@ BFE_API int BFE_HardLink(const char *pszImageExisting, const char *pszImageNewNa
     }
 
     /* The gate: the busy flag, an open image, and a writable session. */
-    iStatus = BFX_Enter(TRUE, TRUE);
+    iStatus = BFX_Enter(true, true);
 
     if (iStatus != BFE_OK)
     {   /* Busy, nothing open, or read-only. */
@@ -3564,7 +3883,7 @@ BFE_API int BFE_SymLink(const char *pszTarget, const char *pszImageLink)
     }
 
     /* The gate: the busy flag, an open image, and a writable session. */
-    iStatus = BFX_Enter(TRUE, TRUE);
+    iStatus = BFX_Enter(true, true);
 
     if (iStatus != BFE_OK)
     {   /* Busy, nothing open, or read-only. */

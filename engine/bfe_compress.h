@@ -15,8 +15,9 @@
 /*                                                                            */
 /* The format is told by the file's first bytes, never by its name.  The      */
 /* libraries are compiled in from compress\, and only the halves used:        */
-/* liblzma both ways (LZMA2 only), zlib's inflate and zstd's decoder -- there */
-/* is no gzip or zstd WRITER.  The zip container is read here, by hand.       */
+/* liblzma both ways (LZMA2, with the BCJ filters read but never written),    */
+/* zlib's inflate and zstd's decoder -- there is no gzip or zstd WRITER.      */
+/* The zip container is read here, by hand.                                   */
 /*                                                                            */
 /* What the reader CHECKS as it decodes is each format's own: .xz's block     */
 /* checks (liblzma), each gzip member's CRC-32 and length (zlib), a .zst      */
@@ -51,7 +52,7 @@
 /* to them.                                                                   */
 /*----------------------------------------------------------------------------*/
 #define BFZ_KIND_RAW     BFE_IMAGE_RAW     // not a format below: the bytes ARE the image
-#define BFZ_KIND_XZ      BFE_IMAGE_XZ      // .xz: FD 37 7A 58 5A 00 (one or more streams, LZMA2 only here)
+#define BFZ_KIND_XZ      BFE_IMAGE_XZ      // .xz: FD 37 7A 58 5A 00 (one or more streams, LZMA2 with or without a BCJ filter here)
 #define BFZ_KIND_GZIP    BFE_IMAGE_GZIP    // .gz: 1F 8B (one or more members)
 #define BFZ_KIND_ZSTD    BFE_IMAGE_ZSTD    // .zst: 28 B5 2F FD (one or more frames, skippable frames allowed before them -- BFZ_ReaderOpen looks past those)
 #define BFZ_KIND_ZIP     BFE_IMAGE_ZIP     // .zip: 50 4B 03 04 -- the FIRST file entry is the image (stored or deflate, ZIP64 sizes read)

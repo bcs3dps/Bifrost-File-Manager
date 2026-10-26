@@ -454,7 +454,7 @@ namespace BifrostFM
         private const string MAIN_PARENT_NAME    = "..";                                                              // the row that goes up one level, in both panes
         private const string MAIN_NO_IMAGE_TEXT  = "(no image open -- click the folder icon to open one)";            // what the image path box shows while no image is open
         private const string MAIN_NO_IMAGE_SIDE  = "(IMAGE)";                                                         // the image path row's side label while no image is open (Main_ShowNoImage); an open filesystem's type replaces it (Main_ApplyOpenResult)
-        private const string MAIN_NO_IMAGE_STATUS = "Open an ext2 / ext3 / ext4, FAT or exFAT image file to begin.";  // the status line with nothing open: at start-up, and in place of a closed image's summary (Main_ShowNoImage)
+        private const string MAIN_NO_IMAGE_STATUS = "Open an ext2 / ext3 / ext4, squashfs, FAT or exFAT image file to begin.";  // the status line with nothing open: at start-up, and in place of a closed image's summary (Main_ShowNoImage)
         private const string MAIN_DRAG_IMAGE_FORMAT = "BifrostFM.ImagePaneSelection";                                 // private drag format: "the image pane's selection"
         private const string MAIN_CLIP_EFFECT_FORMAT = "Preferred DropEffect";                                        // the shell's clipboard format saying whether a paste should copy or move (how a cut is told from a copy)
         private const string MAIN_DRAG_TEMP_PREFIX  = "BifrostFM-drag-";                                              // prefix of a temporary folder under %TEMP% -- a drag's, or an opened file's: then the process id, a dash, a random part
@@ -600,6 +600,7 @@ namespace BifrostFM
         private ToolStripMenuItem    Main_tsmOptMetaOut;       // Options > write the metadata manifest when extracting (a tick mark)
         private ToolStripMenuItem    Main_tsmOptMetaIn;        // Options > restore metadata from a manifest when importing (a tick mark)
         private ToolStripMenuItem    Main_tsmOptSetTimes;      // Options > give extracted files the image's modify times (a tick mark)
+        private ToolStripMenuItem    Main_tsmOptFollowLinks;   // Options > extracting follows symbolic links (a tick mark, off by default)
         private ToolStripMenuItem    Main_tsmOptEditorOpen;    // Options > a plain Open of a text file the program can identify as a config format (by its name, or JSON by its content) uses the structured editor (a tick mark)
         private ToolStripMenuItem    Main_tsmOptVerify;        // Options > an ordinary session's writes to a device are read back (a tick mark; off by default)
         private ToolStripMenuItem    Main_tsmOptWarnings;      // Options > Risk Warning Enable (a tick mark set by hand, not on click: unticking asks twice)
@@ -1179,7 +1180,7 @@ namespace BifrostFM
             Main_tsmCommands.DropDownItems.Add(Main_tsmProperties);
             Main_tsmCommands.DropDownOpening += Main_OnCommandsMenuOpening;
 
-            /* Options: four remembered tick marks, each made by Main_NewOption   */
+            /* Options: five remembered tick marks, each made by Main_NewOption   */
             /* from its menu text, its registry value, its default when the       */
             /* value is absent, and a handler of its own.  CheckOnClick           */
             /* toggles the mark; each handler only has to store the new state     */
@@ -1192,6 +1193,8 @@ namespace BifrostFM
                                                 Main_OnOptMetaInChanged);
             Main_tsmOptSetTimes = Main_NewOption("Extracted files keep the image's modify &times", SET_Settings.SET_OPT_SET_TIMES, 1,
                                                  Main_OnOptSetTimesChanged);
+            Main_tsmOptFollowLinks = Main_NewOption("Extracting &follows symbolic links", SET_Settings.SET_OPT_FOLLOW_LINKS, 0,
+                                                    Main_OnOptFollowLinksChanged);
             Main_tsmOptEditorOpen = Main_NewOption("Open config files (JSON, INI, Klipper) in the &editor", SET_Settings.SET_OPT_JSON_OPEN, 1,
                                                    Main_OnOptEditorOpenChanged);
 
@@ -1212,6 +1215,7 @@ namespace BifrostFM
             Main_tsmOptions.DropDownItems.Add(Main_tsmOptMetaOut);
             Main_tsmOptions.DropDownItems.Add(Main_tsmOptMetaIn);
             Main_tsmOptions.DropDownItems.Add(Main_tsmOptSetTimes);
+            Main_tsmOptions.DropDownItems.Add(Main_tsmOptFollowLinks);
             Main_tsmOptions.DropDownItems.Add(new ToolStripSeparator());
             Main_tsmOptions.DropDownItems.Add(Main_tsmOptEditorOpen);
             Main_tsmOptions.DropDownItems.Add(new ToolStripSeparator());
@@ -3641,10 +3645,11 @@ namespace BifrostFM
             /* A copy across needs an open image AND a real Windows folder, in a pane that is showing. */
             bBothSides = Main_bImageOpen && Main_sHostDir.Length != 0 && Main_tsmShowHost.Checked;
 
-            /* Enable Writing only while an image is open read-only; each     */
-            /* copy across only with a selection in the pane it copies FROM   */
-            /* (Import from the Windows pane, Extract from the image).        */
-            Main_tsbWrite.Enabled      = Main_bImageOpen && Main_bReadOnly;
+            /* Enable Writing only while an image is open read-only, and never   */
+            /* on squashfs, which cannot be written; each copy across only       */
+            /* with a selection in the pane it copies FROM (Import from the      */
+            /* Windows pane, Extract from the image).                            */
+            Main_tsbWrite.Enabled      = Main_bImageOpen && Main_bReadOnly && !Main_OpenIsSquashfs();
             Main_tsbToImage.Enabled    = bBothSides && aiSelected[MAIN_SIDE_HOST] != 0;
             Main_tsbToHost.Enabled     = bBothSides && aiSelected[MAIN_SIDE_IMAGE] != 0;
 
@@ -4825,6 +4830,27 @@ namespace BifrostFM
         {
             /* The tick, under its registry value. */
             Main_StoreOption(Main_tsmOptSetTimes, SET_Settings.SET_OPT_SET_TIMES);
+        }
+
+        /*--------------------------------------------------------------------*/
+        /* Main_OnOptFollowLinksChanged:                                      */
+        /*                                                                    */
+        /* Options > Extracting follows symbolic links was ticked or          */
+        /* unticked: remember it, as the other extract options are.  The      */
+        /* tick is read when each copy out is posted (Main_PostCommandCopy)   */
+        /* or a drag out begins, so it reaches every way out of the image.    */
+        /*                                                                    */
+        /* Arguments:                                                         */
+        /*     objSender : the menu item (unused).                            */
+        /*     evArgs    : unused.                                            */
+        /*                                                                    */
+        /* Returns:                                                           */
+        /*     void : the setting is stored.                                  */
+        /*--------------------------------------------------------------------*/
+        private void Main_OnOptFollowLinksChanged(object objSender, EventArgs evArgs)
+        {
+            /* The tick, under its registry value. */
+            Main_StoreOption(Main_tsmOptFollowLinks, SET_Settings.SET_OPT_FOLLOW_LINKS);
         }
 
         /*--------------------------------------------------------------------*/
@@ -7209,6 +7235,16 @@ namespace BifrostFM
             else
             {   /* Not ticked: Windows' own times (the copy's). */
                 stExtractOptions.EXO_uiSetTimes = 0U;
+            }
+
+            /* ... and whether a symbolic link is copied as what it names. */
+            if (Main_tsmOptFollowLinks.Checked)
+            {   /* Ticked: each link's target copied under the link's name. */
+                stExtractOptions.EXO_uiFollowLinks = 1U;
+            }
+            else
+            {   /* Not ticked: links skipped, as NTFS cannot hold them. */
+                stExtractOptions.EXO_uiFollowLinks = 0U;
             }
 
             for (i = 0; i < Main_lstImage.SelectedItems.Count; i++)
